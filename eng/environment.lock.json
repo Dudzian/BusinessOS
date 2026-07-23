@@ -1,0 +1,10 @@
+{
+  "dotnetSdk": "10.0.100",
+  "powershell": { "minimumVersion": "7.4.0" },
+  "targetRuntime": "win-x64",
+  "targetFramework": "net10.0-windows10.0.19041.0",
+  "windowsSdkMinimum": "10.0.19041.0",
+  "nugetCache": ".cache/nuget",
+  "dotnetRoot": ".tools/dotnet",
+  "powershellRoot": ".tools/powershell"
+}

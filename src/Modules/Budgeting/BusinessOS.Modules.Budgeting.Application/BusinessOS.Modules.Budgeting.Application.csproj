@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <ProjectReference Include="../BusinessOS.Modules.Budgeting.Domain/BusinessOS.Modules.Budgeting.Domain.csproj" />
+  </ItemGroup>
+</Project>

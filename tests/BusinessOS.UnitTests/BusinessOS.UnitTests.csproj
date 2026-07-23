@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/BuildingBlocks/BusinessOS.BuildingBlocks.Domain/BusinessOS.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="../../src/Modules/Companies/BusinessOS.Modules.Companies.Domain/BusinessOS.Modules.Companies.Domain.csproj" />
+    <ProjectReference Include="../../src/Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Domain/BusinessOS.Modules.BusinessProjects.Domain.csproj" />
+  </ItemGroup>
+</Project>

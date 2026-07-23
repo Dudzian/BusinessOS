@@ -1,0 +1,12 @@
+<Window
+    x:Class="BusinessOS.Desktop.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="BusinessOS">
+    <Border Padding="32">
+        <StackPanel Spacing="12">
+            <TextBlock Text="{Binding Title}" FontSize="32" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding StatusMessage}" FontSize="18" />
+        </StackPanel>
+    </Border>
+</Window>

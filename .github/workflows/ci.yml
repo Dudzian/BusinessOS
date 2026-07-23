@@ -1,0 +1,13 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-businessos
+      - shell: pwsh
+        run: . ./eng/activate-environment.ps1; ./eng/verify.ps1

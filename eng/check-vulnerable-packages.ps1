@@ -1,0 +1,2 @@
+$ErrorActionPreference='Stop'; Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Engineering.psm1') -Force; $Root=Get-BusinessOSRepoRoot
+if(Get-ChildItem $Root -Recurse -Filter *.csproj | ? FullName -notmatch '[\\/](bin|obj|.tools|.cache)[\\/]'){Invoke-CheckedCommand dotnet @('list','BusinessOS.sln','package','--vulnerable','--include-transitive') $Root}else{Write-Host 'No projects found: vulnerable package scan SKIPPED'}

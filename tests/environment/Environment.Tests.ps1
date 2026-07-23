@@ -365,5 +365,68 @@ Assert 'doctor rejects forced NuGet cache cleanup failure' {
 Assert 'Invoke-CheckedCommand handles script path and argument with spaces' { $d=Join-Path ([IO.Path]::GetTempPath()) ('space dir '+[Guid]::NewGuid()); New-Item -ItemType Directory -Force $d|Out-Null; $script=Join-Path $d 'script with space.ps1'; 'param([string]$Value) Write-Output "VALUE=$Value"'|Set-Content -LiteralPath $script; $r=Invoke-CheckedCommand $script @('hello world') $d; if(($r.StdOut -join '') -notmatch 'hello world'){throw 'argument with space was not preserved'} }
 Assert 'Invoke-ProcessForTest handles large stdout and stderr concurrently' { $r=Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command','1..2000|%{Write-Output "out $_"; Write-Error "err $_" -ErrorAction Continue}') -WorkingDirectory $RepoRoot; if($r.Output.Length -lt 1000 -or $r.Error.Length -lt 1000){throw 'missing stream output'} }
 Assert 'cross-platform filter contains required projects and excludes Desktop/Infrastructure' { $p=Get-BusinessOSCrossPlatformFilterProjects $RepoRoot; foreach($r in 'BusinessOS.BuildingBlocks.Domain.csproj','BusinessOS.BuildingBlocks.Application.csproj','BusinessOS.UnitTests.csproj','BusinessOS.ArchitectureTests.csproj'){if(-not(($p|Split-Path -Leaf)-contains $r)){throw "missing $r"}}; if(($p -join ';') -match 'Desktop|Infrastructure'){throw 'excluded project present'} }
+
+function New-VulnerabilityScanFixture {
+  $d=Join-Path ([IO.Path]::GetTempPath()) ("vulnerability scan fixture space apostrof' [1] nawiasy() znak`$dolara "+[Guid]::NewGuid())
+  New-Item -ItemType Directory -Force $d|Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'BusinessOS.CrossPlatform.slnf') -Destination (Join-Path $d 'BusinessOS.CrossPlatform.slnf')
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'BusinessOS.sln') -Destination (Join-Path $d 'BusinessOS.sln')
+  New-Item -ItemType Directory -Force (Join-Path $d 'eng')|Out-Null
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'eng/check-vulnerable-packages.ps1') -Destination (Join-Path $d 'eng/check-vulnerable-packages.ps1')
+  Copy-Item -LiteralPath (Join-Path $RepoRoot 'eng/BusinessOS.Engineering.psm1') -Destination (Join-Path $d 'eng/BusinessOS.Engineering.psm1')
+  $filter=Get-Content -LiteralPath (Join-Path $d 'BusinessOS.CrossPlatform.slnf') -Raw|ConvertFrom-Json
+  foreach($project in @($filter.solution.projects)+@('src/BusinessOS.Desktop/BusinessOS.Desktop.csproj','src/Infrastructure/Infrastructure.csproj')){
+    $path=Join-Path $d $project
+    New-Item -ItemType Directory -Force (Split-Path -Parent $path)|Out-Null
+    '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>'|Set-Content -LiteralPath $path
+  }
+  $d
+}
+function New-FakeDotnetProbe([string]$Directory,[string]$Mode='clean'){
+  $path=Join-Path $Directory 'fake dotnet probe.ps1'
+  @'
+param([Parameter(ValueFromRemainingArguments=$true)][string[]]$ProbeArgumentList)
+$ErrorActionPreference='Stop'
+$record=[pscustomobject]@{ arguments=@($ProbeArgumentList) }
+$record|ConvertTo-Json -Compress -Depth 20|Add-Content -LiteralPath $env:BUSINESSOS_FAKE_DOTNET_LOG
+[Console]::Error.WriteLine("fake dotnet warning on stderr")
+if($env:BUSINESSOS_FAKE_DOTNET_MODE -eq 'malformed') { [Console]::Out.WriteLine('{ not json'); exit 0 }
+$projectIndex=[Array]::IndexOf($ProbeArgumentList,'--project')
+$project=if($projectIndex -ge 0 -and $projectIndex + 1 -lt $ProbeArgumentList.Count){$ProbeArgumentList[$projectIndex+1]}else{'missing-project'}
+$package=@()
+if($env:BUSINESSOS_FAKE_DOTNET_MODE -eq 'vulnerable'){
+  $package=@([pscustomobject]@{id='Vulnerable.Package';resolvedVersion='1.2.3';vulnerabilities=@([pscustomobject]@{severity='High';advisoryurl='https://example.test/advisory'})})
+}
+[pscustomobject]@{version=1;projects=@([pscustomobject]@{path=$project;frameworks=@([pscustomobject]@{framework='net10.0';topLevelPackages=$package;transitivePackages=@()})})}|ConvertTo-Json -Depth 50
+'@|Set-Content -LiteralPath $path
+  $path
+}
+function Read-FakeDotnetInvocations([string]$Path){ if(-not(Test-Path -LiteralPath $Path)){return @()}; @(Get-Content -LiteralPath $Path|Where-Object{$_}|ForEach-Object{$_|ConvertFrom-Json}) }
+function Assert-VulnerabilityInvocationSyntax($Invocation){
+  $a=@($Invocation.arguments)
+  $expected='package','list','--project',$a[3],'--vulnerable','--include-transitive','--format','json','--output-version','1','--no-restore'
+  if($a.Count -ne $expected.Count){throw "unexpected argument count: $($a -join '|')"}
+  for($i=0;$i -lt $expected.Count;$i++){if($a[$i] -ne $expected[$i]){throw "argument $i expected '$($expected[$i])' got '$($a[$i])'"}}
+  $target=$a[3]
+  if(@($a|Where-Object{$_ -eq $target}).Count -ne 1){throw 'target does not appear exactly once'}
+  if($a[2] -ne '--project'){throw '--project does not immediately precede target'}
+  if($a[0] -ne 'package' -or $a[1] -ne 'list'){throw 'missing package list prefix'}
+  if($a[2] -eq $target){throw 'old positional target layout detected'}
+  if(@($a|Where-Object{[string]::IsNullOrEmpty($_)}).Count -gt 0){throw 'empty argument detected'}
+  if($a.Count -eq 1 -and $a[0] -match 'package\s+list'){throw 'single composed command detected'}
+}
+Assert 'vulnerability scanner uses .NET 10 package list syntax' {
+  $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='clean'; Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.sln'),'-DotnetExecutable',$fake) -WorkingDirectory $d|Out-Null; foreach($i in Read-FakeDotnetInvocations $logPath){Assert-VulnerabilityInvocationSyntax $i} } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+Assert 'vulnerability scanner expands solution filter projects' {
+  $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='clean'; Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.CrossPlatform.slnf'),'-DotnetExecutable',$fake) -WorkingDirectory $d|Out-Null; $filter=Get-Content -LiteralPath (Join-Path $d 'BusinessOS.CrossPlatform.slnf') -Raw|ConvertFrom-Json; $expected=@($filter.solution.projects|ForEach-Object{(Resolve-Path -LiteralPath (Join-Path $d $_)).Path}|Select-Object -Unique); $inv=Read-FakeDotnetInvocations $logPath; if($inv.Count -ne $expected.Count){throw "unexpected invocation count $($inv.Count) expected $($expected.Count)"}; foreach($i in $inv){Assert-VulnerabilityInvocationSyntax $i; $target=@($i.arguments)[3]; if($target -notlike '*.csproj'){throw "target is not csproj: $target"}; if($target -like '*.slnf' -or $target -like '*.sln'){throw "solution file scanned: $target"}; if($target -match 'BusinessOS\.Desktop|Infrastructure'){throw "excluded target scanned: $target"}; if(-not [IO.Path]::IsPathRooted($target)){throw "target is not absolute: $target"}; if(-not(Test-Path -LiteralPath $target)){throw "target missing: $target"} } } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+Assert 'vulnerability scanner scans solution as one target' {
+  $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='clean'; Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.sln'),'-DotnetExecutable',$fake) -WorkingDirectory $d|Out-Null; $inv=Read-FakeDotnetInvocations $logPath; if($inv.Count -ne 1){throw "expected one invocation"}; Assert-VulnerabilityInvocationSyntax $inv[0]; if(@($inv[0].arguments)[3] -ne (Resolve-Path -LiteralPath (Join-Path $d 'BusinessOS.sln')).Path){throw 'solution target mismatch'} } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+Assert 'vulnerability scanner keeps stderr separate from JSON' {
+  $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='clean'; Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.sln'),'-DotnetExecutable',$fake) -WorkingDirectory $d|Out-Null; $artifact=Get-Content -LiteralPath (Join-Path $d '.cache/vulnerable-packages.json') -Raw; if($artifact -match 'fake dotnet warning'){throw 'stderr leaked into JSON artifact'}; $artifact|ConvertFrom-Json|Out-Null } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+Assert 'vulnerability scanner rejects vulnerable package report' {
+  $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='vulnerable'; $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.sln'),'-DotnetExecutable',$fake) -WorkingDirectory $d -Contains 'Vulnerable NuGet packages were reported: 1'; if($r.Combined -notmatch 'Vulnerable\.Package'){throw 'vulnerable package name missing'}; if(-not(Test-Path -LiteralPath (Join-Path $d '.cache/vulnerable-packages.json'))){throw 'artifact missing'} } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+Assert 'vulnerability scanner rejects malformed JSON' {
+  $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='malformed'; Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.sln'),'-DotnetExecutable',$fake) -WorkingDirectory $d -Contains 'Vulnerability report is not valid JSON'|Out-Null } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+
 Assert 'Windows verifier fails outside Windows' { if(-not $IsWindows){ Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $RepoRoot 'eng/verify-windows.ps1')) -WorkingDirectory $RepoRoot -Contains 'must run on Windows' | Out-Null } }
 if($script:Failures -gt 0){exit 1}

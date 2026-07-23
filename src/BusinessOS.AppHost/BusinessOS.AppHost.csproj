@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <ProjectReference Include="../Modules/Companies/BusinessOS.Modules.Companies.Application/BusinessOS.Modules.Companies.Application.csproj" />
+    <ProjectReference Include="../Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Application/BusinessOS.Modules.BusinessProjects.Application.csproj" />
+    <ProjectReference Include="../Modules/Budgeting/BusinessOS.Modules.Budgeting.Application/BusinessOS.Modules.Budgeting.Application.csproj" />
+  </ItemGroup>
+</Project>

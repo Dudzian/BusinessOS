@@ -1,10 +1,8 @@
-.tools/
-.cache/
 bin/
 obj/
-TestResults/
-*.trx
-*.log
-*.tmp
-*.user
-*.suo
+artifacts/
+*.db
+*.sqlite
+*.bosbackup
+*.pfx
+*.snk

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../BusinessOS.BuildingBlocks.Domain/BusinessOS.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+</Project>

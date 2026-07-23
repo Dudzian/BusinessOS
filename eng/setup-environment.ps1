@@ -1,7 +1,7 @@
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Engineering.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Provisioning.psm1') -Force
-$Root=Get-BusinessOSRepoRoot; $Lock=Read-BusinessOSEnvironmentLock; $Bootstrap=Read-BusinessOSBootstrapLock
+$Root=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path; $Lock=Read-BusinessOSEnvironmentLock; $Bootstrap=Read-BusinessOSBootstrapLock
 if($Bootstrap.DOTNET_SDK_VERSION -ne $Lock.dotnetSdk){throw 'Bootstrap DOTNET_SDK_VERSION does not match environment.lock.json'}
 foreach($p in '.tools','.cache',$Lock.dotnetRoot,$Lock.powershellRoot,$Lock.powershellModuleRoot,$Lock.nugetCache,$Lock.dotnetHome,$Lock.downloadCache){New-Item -ItemType Directory -Force -Path (Join-Path $Root $p)|Out-Null}
 $dotnetRootLocal=Join-Path $Root $Lock.dotnetRoot; $pwshRootLocal=Join-Path $Root $Lock.powershellRoot
@@ -28,6 +28,6 @@ if($null -eq $pwsh){
 }
 if($null -eq $pwsh){throw 'PowerShell provisioning failed'}
 $resolved=[pscustomobject]@{dotnetExecutable=$dotnet.Executable;dotnetRoot=$dotnet.Root;dotnetSource=$dotnet.Source;powershellExecutable=$pwsh.Executable;powershellRoot=$pwsh.Root;powershellSource=$pwsh.Source;nugetPackages=(Join-Path $Root $Lock.nugetCache);dotnetCliHome=(Join-Path $Root $Lock.dotnetHome);powershellModuleRoot=(Join-Path $Root $Lock.powershellModuleRoot)}
-$resolvedPath=Join-Path $Root '.cache/environment.resolved.json'; $resolved|ConvertTo-Json -Depth 5|Set-Content $resolvedPath
-@("DOTNET_ROOT=$($resolved.dotnetRoot)","NUGET_PACKAGES=$($resolved.nugetPackages)","DOTNET_CLI_HOME=$($resolved.dotnetCliHome)","POWERSHELL_ROOT=$($resolved.powershellRoot)","PSMODULE_ROOT=$($resolved.powershellModuleRoot)","DOTNET_EXE=$($resolved.dotnetExecutable)","PWSH_EXE=$($resolved.powershellExecutable)")|Set-Content (Join-Path $Root '.cache/environment.resolved.env')
+$resolvedPath=Join-Path $Root '.cache/environment.resolved.json'; $resolved|ConvertTo-Json -Depth 5|Set-Content -LiteralPath $resolvedPath
+@("DOTNET_ROOT=$($resolved.dotnetRoot)","NUGET_PACKAGES=$($resolved.nugetPackages)","DOTNET_CLI_HOME=$($resolved.dotnetCliHome)","POWERSHELL_ROOT=$($resolved.powershellRoot)","PSMODULE_ROOT=$($resolved.powershellModuleRoot)","DOTNET_EXE=$($resolved.dotnetExecutable)","PWSH_EXE=$($resolved.powershellExecutable)")|Set-Content -LiteralPath (Join-Path $Root '.cache/environment.resolved.env')
 Write-Host "BusinessOS environment setup completed. Resolved state: $resolvedPath"

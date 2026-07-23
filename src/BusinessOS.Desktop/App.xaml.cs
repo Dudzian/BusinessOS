@@ -1,3 +1,4 @@
+using System.Reflection;
 using BusinessOS.AppHost;
 using BusinessOS.Desktop.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,7 +15,7 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
-        host = BusinessOsHost.BuildHost();
+        host = BusinessOsHost.BuildHost(Assembly.GetExecutingAssembly());
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -27,6 +28,7 @@ public partial class App : Application
 
     private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
+        window?.Closed -= OnWindowClosed;
         await host.StopAsync().ConfigureAwait(true);
         host.Dispose();
     }

@@ -8,26 +8,58 @@ runs:
       run: |
         $lock = Get-Content eng/environment.lock.json -Raw | ConvertFrom-Json
         "dotnet=$($lock.dotnetSdk)" >> $env:GITHUB_OUTPUT
-    - uses: actions/setup-dotnet@v4
+    - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ steps.lock.outputs.dotnet }}
-        cache: true
-        cache-dependency-path: |
-          global.json
-          eng/environment.lock.json
-          Directory.Packages.props
-          **/*.csproj
     - uses: actions/cache@v4
       with:
-        path: |
-          .cache/nuget
-          .cache/dotnet-home
-        key: businessos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', 'eng/environment.lock.json', 'Directory.Packages.props', '**/*.csproj') }}
-    - shell: pwsh
-      run: ./eng/setup-environment.ps1
-    - shell: pwsh
-      run: . ./eng/activate-environment.ps1; ./eng/doctor.ps1 -Mode CrossPlatform | Tee-Object .cache/doctor.txt
-    - uses: actions/upload-artifact@v4
+        path: .cache/nuget
+        key: businessos-nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('eng/environment.lock.json', 'eng/environment.bootstrap.env', 'global.json', 'Directory.Packages.props', 'BusinessOS.CrossPlatform.slnf', '**/*.csproj') }}
+    - name: Setup local environment
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force .cache | Out-Null
+        ./eng/setup-environment.ps1 2>&1 | Tee-Object .cache/setup.log
+    - name: Export resolved environment to later steps
+      shell: pwsh
+      run: |
+        $resolved = Get-Content .cache/environment.resolved.json -Raw | ConvertFrom-Json
+        "DOTNET_ROOT=$($resolved.dotnetRoot)" >> $env:GITHUB_ENV
+        "NUGET_PACKAGES=$($resolved.nugetPackages)" >> $env:GITHUB_ENV
+        "DOTNET_CLI_HOME=$($resolved.dotnetCliHome)" >> $env:GITHUB_ENV
+        "PSModulePath=$($resolved.powershellModuleRoot)$([IO.Path]::PathSeparator)$env:PSModulePath" >> $env:GITHUB_ENV
+        $resolved.dotnetRoot >> $env:GITHUB_PATH
+        $resolved.powershellRoot >> $env:GITHUB_PATH
+    - name: Validate provisioned tools
+      shell: pwsh
+      run: |
+        . ./eng/activate-environment.ps1
+        $lock = Get-Content eng/environment.lock.json -Raw | ConvertFrom-Json
+        $resolved = Get-Content .cache/environment.resolved.json -Raw | ConvertFrom-Json
+        $dotnetCommand = (Get-Command dotnet).Source
+        $pwshCommand = (Get-Command pwsh).Source
+        $dotnetVersion = dotnet --version
+        $pwshVersion = pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+        "dotnetSource=$dotnetCommand" | Tee-Object .cache/tool-versions.log
+        "pwshSource=$pwshCommand" | Tee-Object .cache/tool-versions.log -Append
+        "DOTNET_ROOT=$env:DOTNET_ROOT" | Tee-Object .cache/tool-versions.log -Append
+        "dotnet=$dotnetVersion" | Tee-Object .cache/tool-versions.log -Append
+        "pwsh=$pwshVersion" | Tee-Object .cache/tool-versions.log -Append
+        if ($dotnetVersion -ne $lock.dotnetSdk) { throw "dotnet mismatch: $dotnetVersion" }
+        if ($pwshVersion -ne $lock.powershell.version) { throw "pwsh mismatch: $pwshVersion" }
+        if ((Split-Path -Parent $dotnetCommand) -ne $env:DOTNET_ROOT) { throw "DOTNET_ROOT does not match selected dotnet: $env:DOTNET_ROOT vs $dotnetCommand" }
+    - name: Doctor for runner OS
+      shell: pwsh
+      run: |
+        if ($IsWindows) { ./eng/doctor.ps1 -Mode Windows -SkipEnvironmentTests 2>&1 | Tee-Object .cache/doctor.txt }
+        else { ./eng/doctor.ps1 -Mode CrossPlatform -SkipEnvironmentTests 2>&1 | Tee-Object .cache/doctor.txt }
+    - name: Upload setup diagnostics
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: businessos-environment-${{ runner.os }}-${{ runner.arch }}
-        path: .cache/doctor.txt
+        path: |
+          .cache/setup.log
+          .cache/doctor.txt
+          .cache/tool-versions.log
+          .cache/environment.resolved.json

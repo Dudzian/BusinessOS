@@ -1,0 +1,6 @@
+{
+  "name": "BusinessOS cross-platform",
+  "build": { "dockerfile": "Dockerfile" },
+  "customizations": { "vscode": { "extensions": ["ms-dotnettools.csharp", "ms-vscode.powershell"] } },
+  "postCreateCommand": "pwsh -NoProfile -File ./eng/setup-environment.ps1 && pwsh -NoProfile -File ./eng/doctor.ps1 -Mode CrossPlatform -SkipEnvironmentTests"
+}

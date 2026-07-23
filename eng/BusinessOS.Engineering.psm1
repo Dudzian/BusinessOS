@@ -16,11 +16,16 @@ function Read-BusinessOSBootstrapLock {
 }
 function Test-VersionAtLeast { param([string]$Detected,[string]$Minimum) try { [version]$Detected -ge [version]$Minimum } catch { $false } }
 function Get-BusinessOSToolPath { param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$RelativeRoot,[Parameter(Mandatory)][string]$BaseName) $exe = if ($IsWindows) { "$BaseName.exe" } else { $BaseName }; Join-Path (Join-Path $Root $RelativeRoot) $exe }
+function ConvertTo-OutputLines {
+  param([AllowNull()][string]$Text)
+  if ([string]::IsNullOrEmpty($Text)) { return @() }
+  @($Text -split "\r?\n" | Where-Object { $_ -ne '' })
+}
 function Invoke-CheckedCommand {
   param([Parameter(Mandatory)][string]$FilePath,[string[]]$ArgumentList=@(),[string]$WorkingDirectory=(Get-Location).Path)
   $display = (@($FilePath) + $ArgumentList) -join ' '
   Write-Host "> $display"
-  $previous=(Get-Location).Path; $sw=[Diagnostics.Stopwatch]::StartNew()
+  $previous=(Get-Location).Path; $sw=[Diagnostics.Stopwatch]::StartNew(); $process=$null; $code=-1; $stdoutLines=@(); $stderrLines=@()
   try {
     $isPs1=$FilePath -match '\.ps1$'
     $psi=[Diagnostics.ProcessStartInfo]::new()
@@ -30,18 +35,24 @@ function Invoke-CheckedCommand {
     if($isPs1){[void]$psi.ArgumentList.Add('-NoProfile'); [void]$psi.ArgumentList.Add('-File'); [void]$psi.ArgumentList.Add($FilePath)}
     foreach($arg in $ArgumentList){[void]$psi.ArgumentList.Add($arg)}
     Set-Location -LiteralPath $psi.WorkingDirectory
-    $p=[Diagnostics.Process]::new(); $p.StartInfo=$psi
-    $stdout=[System.Collections.Concurrent.ConcurrentQueue[string]]::new(); $stderr=[System.Collections.Concurrent.ConcurrentQueue[string]]::new()
-    $p.add_OutputDataReceived({ if($null -ne $_.Data){ $stdout.Enqueue($_.Data); Write-Host $_.Data } })
-    $p.add_ErrorDataReceived({ if($null -ne $_.Data){ $stderr.Enqueue($_.Data); Write-Error $_.Data -ErrorAction Continue } })
-    if(-not $p.Start()){throw "Failed to start process: $FilePath"}
-    $p.BeginOutputReadLine(); $p.BeginErrorReadLine(); $p.WaitForExit(); $p.WaitForExit()
-    $code=$p.ExitCode
+    $process=[Diagnostics.Process]::new(); $process.StartInfo=$psi
+    if(-not $process.Start()){throw "Failed to start process: $FilePath"}
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+    $stderrText = $stderrTask.GetAwaiter().GetResult()
+    $stdoutLines = @(ConvertTo-OutputLines $stdoutText)
+    $stderrLines = @(ConvertTo-OutputLines $stderrText)
+    foreach($line in $stdoutLines){ Write-Host $line }
+    foreach($line in $stderrLines){ Write-Host $line }
+    $code=$process.ExitCode
   } finally {
+    if($null -ne $process){ $process.Dispose() }
     Set-Location -LiteralPath $previous
-    $sw.Stop(); Write-Host ("< exit {0} after {1:n1}s" -f $(if(Get-Variable code -Scope Local -ErrorAction SilentlyContinue){$code}else{-1}),$sw.Elapsed.TotalSeconds)
+    $sw.Stop(); Write-Host ("< exit {0} after {1:n1}s" -f $code,$sw.Elapsed.TotalSeconds)
   }
-  $result=[pscustomobject]@{ExitCode=$code;StdOut=@($stdout.ToArray());StdErr=@($stderr.ToArray());Duration=$sw.Elapsed;WorkingDirectory=$WorkingDirectory;FileName=$FilePath;Arguments=$ArgumentList}
+  $result=[pscustomobject]@{ExitCode=$code;StdOut=@($stdoutLines);StdErr=@($stderrLines);Duration=$sw.Elapsed;WorkingDirectory=$WorkingDirectory;FileName=$FilePath;Arguments=$ArgumentList}
   if($code -ne 0){throw "Command failed with exit code ${code}: $display"}
   $result
 }

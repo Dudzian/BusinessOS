@@ -11,7 +11,7 @@ runs:
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ steps.lock.outputs.dotnet }}
-    - uses: actions/cache@v4
+    - uses: actions/cache@v5
       with:
         path: .cache/nuget
         key: businessos-nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('eng/environment.lock.json', 'eng/environment.bootstrap.env', 'global.json', 'Directory.Packages.props', 'BusinessOS.CrossPlatform.slnf', '**/*.csproj') }}
@@ -54,7 +54,7 @@ runs:
         if ($IsWindows) { ./eng/doctor.ps1 -Mode Windows -SkipEnvironmentTests 2>&1 | Tee-Object .cache/doctor.txt }
         else { ./eng/doctor.ps1 -Mode CrossPlatform -SkipEnvironmentTests 2>&1 | Tee-Object .cache/doctor.txt }
     - name: Upload setup diagnostics
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       if: always()
       with:
         name: businessos-environment-${{ runner.os }}-${{ runner.arch }}

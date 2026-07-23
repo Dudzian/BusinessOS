@@ -93,6 +93,36 @@ function Invoke-ExpectSuccess {
 
     return $result
 }
+
+function Get-DoctorFailureRecords {
+  param([Parameter(Mandatory)]$RunResult)
+  $prefix = 'BUSINESSOS_DOCTOR_FAILURE_JSON='
+  @(
+    foreach ($line in @($RunResult.Combined -split '\r?\n')) {
+      if ($line.StartsWith($prefix, [StringComparison]::Ordinal)) {
+        $json = $line.Substring($prefix.Length)
+        try { $json | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "Invalid doctor failure JSON: $line" }
+      }
+    }
+  )
+}
+function Assert-DoctorFailureRecord {
+  param(
+    [Parameter(Mandatory)]$RunResult,
+    [Parameter(Mandatory)][string]$Component,
+    [Parameter(Mandatory)][string]$Required,
+    [Parameter(Mandatory)]$Detected
+  )
+  $records = @(Get-DoctorFailureRecords -RunResult $RunResult)
+  $match = @($records | Where-Object { $_.component -eq $Component -and $_.required -eq $Required -and $_.status -eq 'FAIL' })
+  if ($match.Count -ne 1) { throw "Expected exactly one doctor failure record for '$Component'." }
+  if ($Detected -is [bool]) {
+    if ([bool]$match[0].detected -ne $Detected) { throw "Unexpected doctor detected value for '$Component': $($match[0].detected)" }
+  }
+  elseif ($match[0].detected -ne $Detected) { throw "Unexpected doctor detected value for '$Component': $($match[0].detected)" }
+}
+
 function Invoke-ExpectFailure {
     [CmdletBinding()]
     param(
@@ -189,7 +219,7 @@ param(
   }
 }
 Assert 'Invoke-ProcessForTest accepts empty arguments for noninteractive process' { $result = Invoke-ProcessForTest -File 'dotnet' -ArgumentList @() -WorkingDirectory $RepoRoot; if($result.ArgumentList.Count -ne 0){throw 'empty argument list was not preserved'} }
-Assert 'doctor accepts a complete valid fixture' { $d=Copy-FixtureRepo; $doctorResult=Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d; if($doctorResult.Combined -notmatch [regex]::Escape('Environment ready: YES')){throw 'doctor output did not confirm ready environment'}; if($doctorResult.Combined -notmatch [regex]::Escape('BusinessOS.sln')){throw 'doctor output did not mention BusinessOS.sln'} }
+Assert 'doctor accepts a complete valid fixture' { $d=Copy-FixtureRepo; $doctorResult=Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d; if($doctorResult.Combined -notmatch [regex]::Escape('Environment ready: YES')){throw 'doctor output did not confirm ready environment'}; if($doctorResult.Combined -notmatch [regex]::Escape('BusinessOS.sln')){throw 'doctor output did not mention BusinessOS.sln'}; if(@(Get-DoctorFailureRecords -RunResult $doctorResult).Count -ne 0){throw 'valid doctor emitted failure records'} }
 Assert 'PowerShell activation is idempotent' {
   $harnessBefore=[pscustomobject]@{RepoRoot=$RepoRoot;Path=$env:PATH;PSModulePath=$env:PSModulePath;DOTNET_ROOT=$env:DOTNET_ROOT;NUGET_PACKAGES=$env:NUGET_PACKAGES;DOTNET_CLI_HOME=$env:DOTNET_CLI_HOME;Location=(Get-Location).Path}
   $d=Copy-FixtureRepo
@@ -243,9 +273,29 @@ Assert 'PowerShell setup is idempotent with matching host tools' {
   Compare-Resolved $r1 $r2
 }
 Assert 'Bash setup is idempotent with matching host tools and special path' { if($IsWindows -or -not(Get-Command bash -ErrorAction SilentlyContinue)){Write-Host 'SKIPPED bash setup test on this platform'; return}; $lock=Read-BusinessOSEnvironmentLock; if(-not(HostToolsMatch $lock)){Write-Host 'SKIPPED host tools do not match manifest'; return}; $expectedDotnetExecutable=(Get-Command dotnet -ErrorAction Stop).Source; $expectedDotnetRoot=Split-Path -Parent $expectedDotnetExecutable; $expectedPwshExecutable=(Get-Command pwsh -ErrorAction Stop).Source; $expectedPwshRoot=Split-Path -Parent $expectedPwshExecutable; $d=Copy-FixtureRepo "Business OS a'b`$c\d(e) $([Guid]::NewGuid())"; Invoke-ExpectSuccess -File 'bash' -ArgumentList @('-c','./eng/setup-environment.sh') -WorkingDirectory $d|Out-Null; $r1=Read-Resolved $d; $firstEnv=Get-Content -LiteralPath (Join-Path $d '.cache/environment.resolved.env') -Raw; $firstJson=Get-Content -LiteralPath (Join-Path $d '.cache/environment.resolved.json') -Raw; Invoke-ExpectSuccess -File 'bash' -ArgumentList @('-c','./eng/setup-environment.sh') -WorkingDirectory $d|Out-Null; $r2=Read-Resolved $d; $secondEnv=Get-Content -LiteralPath (Join-Path $d '.cache/environment.resolved.env') -Raw; $secondJson=Get-Content -LiteralPath (Join-Path $d '.cache/environment.resolved.json') -Raw; if($secondEnv -ne $firstEnv){throw 'Resolved ENV changed after second Bash setup'}; Compare-Resolved $r1 $r2; if($r2.dotnetExecutable -ne $expectedDotnetExecutable){throw 'Bash setup did not resolve expected host dotnet executable'}; if($r2.dotnetRoot -ne $expectedDotnetRoot){throw 'Bash setup did not resolve expected host dotnet root'}; if($r2.powershellExecutable -ne $expectedPwshExecutable){throw 'Bash setup did not resolve expected host PowerShell executable'}; if($r2.powershellRoot -ne $expectedPwshRoot){throw 'Bash setup did not resolve expected host PowerShell root'}; $expectedNuget=Join-Path $d '.cache/nuget'; $expectedDotnetHome=Join-Path $d '.cache/dotnet-home'; $expectedPsModule=Join-Path $d '.tools/powershell-modules'; if($r2.nugetPackages -ne $expectedNuget){throw 'Bash setup did not resolve expected fixture NuGet cache'}; if($r2.dotnetCliHome -ne $expectedDotnetHome){throw 'Bash setup did not resolve expected fixture dotnet-home'}; if($r2.powershellModuleRoot -ne $expectedPsModule){throw 'Bash setup did not resolve expected fixture PSModule path'}; $envResult=Invoke-ExpectSuccess -File 'bash' -ArgumentList @('-c','set -euo pipefail; set -a; source .cache/environment.resolved.env; set +a; pwsh -NoLogo -NoProfile -NonInteractive -Command ''[ordered]@{ dotnetExecutable = $env:DOTNET_EXE; dotnetRoot = $env:DOTNET_ROOT; dotnetSource = $env:DOTNET_SOURCE; powershellExecutable = $env:PWSH_EXE; powershellRoot = $env:POWERSHELL_ROOT; powershellSource = $env:POWERSHELL_SOURCE; nugetPackages = $env:NUGET_PACKAGES; dotnetCliHome = $env:DOTNET_CLI_HOME; powershellModuleRoot = $env:PSMODULE_ROOT } | ConvertTo-Json -Compress''') -WorkingDirectory $d; if([string]::IsNullOrWhiteSpace($envResult.Output)){throw 'Bash sourced environment produced empty JSON output'}; $resolvedFromEnv=$envResult.Output | ConvertFrom-Json; Compare-Resolved $resolvedFromEnv $r2 }
-Assert 'doctor rejects empty solution with concrete output' { $d=Copy-FixtureRepo; 'Microsoft Visual Studio Solution File'|Set-Content -LiteralPath (Join-Path $d 'BusinessOS.sln'); $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'BusinessOS.sln'; if($r.Combined -notmatch '0 project entries'){throw 'missing project count'} }
-Assert 'doctor rejects missing UnitTests with concrete output' { $d=Copy-FixtureRepo; Remove-Item (Join-Path $d 'tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj'); $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj'; if($r.Combined -notmatch 'FAIL'){throw 'missing FAIL'} }
-Assert 'doctor rejects global mismatch with concrete output' { $d=Copy-FixtureRepo; '{"sdk":{"version":"0.0.1"}}'|Set-Content -LiteralPath (Join-Path $d 'global.json'); $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'global.json SDK'; if($r.Combined -notmatch '0.0.1' -or $r.Combined -notmatch 'FAIL'){throw 'missing mismatch details'} }
+Assert 'doctor rejects empty solution with concrete output' {
+  $d=Copy-FixtureRepo
+  'Microsoft Visual Studio Solution File'|Set-Content -LiteralPath (Join-Path $d 'BusinessOS.sln')
+  $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'BusinessOS.sln'
+  if($r.Combined -notmatch [regex]::Escape('Environment ready: NO')){throw 'doctor output did not reject environment'}
+  Assert-DoctorFailureRecord `
+    -RunResult $r `
+    -Component 'BusinessOS.sln' `
+    -Required 'non-empty solution' `
+    -Detected '0 project entries'
+}
+Assert 'doctor rejects missing UnitTests with concrete output' { $d=Copy-FixtureRepo; Remove-Item (Join-Path $d 'tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj'); $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj'; Assert-DoctorFailureRecord -RunResult $r -Component 'tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj' -Required 'present' -Detected $false }
+Assert 'doctor rejects global mismatch with concrete output' { $d=Copy-FixtureRepo; $lock=Read-BusinessOSEnvironmentLock; '{"sdk":{"version":"0.0.1"}}'|Set-Content -LiteralPath (Join-Path $d 'global.json'); $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'global.json SDK'; if($r.Combined -notmatch [regex]::Escape('Environment ready: NO')){throw 'doctor output did not reject environment'}; Assert-DoctorFailureRecord -RunResult $r -Component 'global.json SDK' -Required $lock.dotnetSdk -Detected '0.0.1' }
+Assert 'doctor failure diagnostics are independent from formatted table width' {
+  $d=Copy-FixtureRepo
+  'Microsoft Visual Studio Solution File'|Set-Content -LiteralPath (Join-Path $d 'BusinessOS.sln')
+  $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d
+  Assert-DoctorFailureRecord `
+    -RunResult $r `
+    -Component 'BusinessOS.sln' `
+    -Required 'non-empty solution' `
+    -Detected '0 project entries'
+}
 Assert 'Assert-FileHash rejects placeholders and accepts valid checksum' { $f=New-FileWithHash 'abc'; $sha=(Get-FileHash $f -Algorithm SHA256).Hash; Assert-FileHash $f $sha SHA256|Out-Null; foreach($bad in '', 'abc', ('0'*64), ('1'*64), ('2'*64), ('3'*64), ('A'*64)){ $failed=$false; try{Assert-FileHash $f $bad SHA256|Out-Null}catch{$failed=$true}; if(-not $failed){throw "accepted bad checksum $bad"} } }
 Assert 'Invoke-DownloadWithFallback uses second adapter after first failure' { $f=Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()); $source=New-FileWithHash 'ok'; $sha=(Get-FileHash $source -Algorithm SHA256).Hash; $adapter={param($url,$out) if($url -eq 'bad'){[pscustomobject]@{StatusCode=500;Bytes=0}}else{Copy-Item $source $out;[pscustomobject]@{StatusCode=200;Bytes=(Get-Item $out).Length}}}; $r=Invoke-DownloadWithFallback @('bad','good') $f $sha SHA256 $adapter; if($r.Url -ne 'good'){throw 'fallback did not reach good source'} }
 Assert 'Invoke-DownloadWithFallback rejects empty and all-failed downloads' { $f=Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()); $sha='A'*64; $adapter={param($url,$out)''|Set-Content -NoNewline $out;[pscustomobject]@{StatusCode=200;Bytes=0}}; $failed=$false; try{Invoke-DownloadWithFallback @('empty') $f $sha SHA256 $adapter|Out-Null}catch{$failed=$true}; if(-not $failed){throw 'accepted empty download'} }
@@ -301,7 +351,17 @@ exit 0
 Assert 'Invoke-CheckedCommand throws command and code for non-zero exit' { $failed=$false; try{Invoke-CheckedCommand pwsh @('-NoLogo','-NoProfile','-NonInteractive','-Command',"[Console]::Out.WriteLine('nonzero-stdout'); [Console]::Error.WriteLine('nonzero-stderr'); exit 23") $RepoRoot|Out-Null}catch{$failed=$true; if($_.Exception.Message -notmatch '23' -or $_.Exception.Message -notmatch 'pwsh'){throw "unexpected exception message: $($_.Exception.Message)"}}; if(-not $failed){throw 'non-zero command did not throw'} }
 Assert 'Invoke-CheckedCommand invokes direct ps1 and preserves spaces' { $d=Join-Path ([IO.Path]::GetTempPath()) ('direct ps1 '+[Guid]::NewGuid()); New-Item -ItemType Directory -Force $d|Out-Null; try{ $script=Join-Path $d 'script with space.ps1'; 'param([string]$Value) [Console]::Out.WriteLine("direct-value=$Value")'|Set-Content -LiteralPath $script; $r=Invoke-CheckedCommand $script @('hello world') $d; if($r.ExitCode -ne 0){throw 'exit code was not 0'}; if($r.StdOut -notcontains 'direct-value=hello world'){throw 'direct ps1 output missing argument with spaces'} } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
 Assert 'Invoke-CheckedCommand honors special working directory' { $d=Join-Path ([IO.Path]::GetTempPath()) ("spacje apostrof' nawiasy() znak`$dolara " + [Guid]::NewGuid()); New-Item -ItemType Directory -Force $d|Out-Null; try{ $r=Invoke-CheckedCommand pwsh @('-NoLogo','-NoProfile','-NonInteractive','-Command','[Console]::Out.WriteLine((Get-Location).Path); exit 0') $d; if($r.ExitCode -ne 0){throw 'exit code was not 0'}; if($r.WorkingDirectory -ne $d){throw "result working directory mismatch: $($r.WorkingDirectory)"}; if($r.StdOut -notcontains $d){throw 'process did not run in special working directory'} } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
-Assert 'doctor rejects forced NuGet cache cleanup failure' { $d=Copy-FixtureRepo; $old=$env:BUSINESSOS_DOCTOR_FORCE_CACHE_FAILURE; try{ $env:BUSINESSOS_DOCTOR_FORCE_CACHE_FAILURE='forced cache failure for test'; $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'NuGet cache'; if($r.Combined -notmatch 'FAIL'){throw 'missing FAIL'}; if($r.Combined -match 'Environment ready: YES'){throw 'doctor reported ready despite failing cache'} } finally { $env:BUSINESSOS_DOCTOR_FORCE_CACHE_FAILURE=$old } }
+Assert 'doctor rejects forced NuGet cache cleanup failure' {
+  $d=Copy-FixtureRepo
+  $old=$env:BUSINESSOS_DOCTOR_FORCE_CACHE_FAILURE
+  try{
+    $env:BUSINESSOS_DOCTOR_FORCE_CACHE_FAILURE='forced cache failure for test'
+    $r=Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') -WorkingDirectory $d -Contains 'NuGet cache'
+    Assert-DoctorFailureRecord -RunResult $r -Component 'NuGet cache' -Required 'writable' -Detected 'forced cache failure for test'
+    if($r.Combined -match 'Environment ready: YES'){throw 'doctor reported ready despite failing cache'}
+  }
+  finally { $env:BUSINESSOS_DOCTOR_FORCE_CACHE_FAILURE=$old }
+}
 Assert 'Invoke-CheckedCommand handles script path and argument with spaces' { $d=Join-Path ([IO.Path]::GetTempPath()) ('space dir '+[Guid]::NewGuid()); New-Item -ItemType Directory -Force $d|Out-Null; $script=Join-Path $d 'script with space.ps1'; 'param([string]$Value) Write-Output "VALUE=$Value"'|Set-Content -LiteralPath $script; $r=Invoke-CheckedCommand $script @('hello world') $d; if(($r.StdOut -join '') -notmatch 'hello world'){throw 'argument with space was not preserved'} }
 Assert 'Invoke-ProcessForTest handles large stdout and stderr concurrently' { $r=Invoke-ExpectSuccess -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-Command','1..2000|%{Write-Output "out $_"; Write-Error "err $_" -ErrorAction Continue}') -WorkingDirectory $RepoRoot; if($r.Output.Length -lt 1000 -or $r.Error.Length -lt 1000){throw 'missing stream output'} }
 Assert 'cross-platform filter contains required projects and excludes Desktop/Infrastructure' { $p=Get-BusinessOSCrossPlatformFilterProjects $RepoRoot; foreach($r in 'BusinessOS.BuildingBlocks.Domain.csproj','BusinessOS.BuildingBlocks.Application.csproj','BusinessOS.UnitTests.csproj','BusinessOS.ArchitectureTests.csproj'){if(-not(($p|Split-Path -Leaf)-contains $r)){throw "missing $r"}}; if(($p -join ';') -match 'Desktop|Infrastructure'){throw 'excluded project present'} }

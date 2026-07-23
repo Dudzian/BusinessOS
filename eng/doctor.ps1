@@ -1,9 +1,24 @@
 param([ValidateSet('CrossPlatform','Windows')][string]$Mode='CrossPlatform',[switch]$SkipEnvironmentTests)
 $ErrorActionPreference='Continue'; Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Engineering.psm1') -Force
 $Root=Get-BusinessOSRepoRoot; $Ready=$true; $Rows=@(); $Lock=$null
+function Write-DoctorReport {
+  param([Parameter(Mandatory)][object[]]$Rows,[Parameter(Mandatory)][bool]$Ready)
+  $Rows | Format-Table Component,Required,Detected,Status -AutoSize
+  foreach($row in @($Rows | Where-Object { $_.Status -eq 'FAIL' })){
+    $payload=[ordered]@{
+      component=[string]$row.Component
+      required=[string]$row.Required
+      detected=$row.Detected
+      status=[string]$row.Status
+    }
+    $json=$payload | ConvertTo-Json -Compress -Depth 4
+    [Console]::Out.WriteLine("BUSINESSOS_DOCTOR_FAILURE_JSON=$json")
+  }
+  [Console]::Out.WriteLine("Environment ready: $(if($Ready){'YES'}else{'NO'})")
+}
 function Add-Check($c,$r,$d,$ok,$skip=$false){$script:Rows += [pscustomobject]@{Component=$c;Required=$r;Detected=$d;Status=if($skip){'SKIPPED'}elseif($ok){'OK'}else{'FAIL'}}; if(-not $ok -and -not $skip){$script:Ready=$false}}
 try{$Lock=Read-BusinessOSEnvironmentLock; Add-Check 'Environment manifest' 'valid JSON' 'loaded' $true}catch{Add-Check 'Environment manifest' 'valid JSON' $_.Exception.Message $false}
-if($null -eq $Lock){$Rows|Format-Table -AutoSize; exit 1}
+if($null -eq $Lock){Write-DoctorReport -Rows $Rows -Ready $Ready; exit 1}
 $expected=@('src/BusinessOS.Desktop/BusinessOS.Desktop.csproj','src/BusinessOS.AppHost/BusinessOS.AppHost.csproj','tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj','tests/BusinessOS.ArchitectureTests/BusinessOS.ArchitectureTests.csproj')
 $solution=Join-Path $Root 'BusinessOS.sln'; $projectLines=if(Test-Path $solution){@((Select-String -Path $solution -Pattern '^Project\('))}else{@()}
 Add-Check 'BusinessOS.sln' 'non-empty solution' "$($projectLines.Count) project entries" ($projectLines.Count -gt 0)
@@ -43,4 +58,4 @@ if($Mode -eq 'Windows'){
  Add-Check 'Interactive desktop' 'true' ([Environment]::UserInteractive) ([Environment]::UserInteractive)
  $desktop=Join-Path $Root 'src/BusinessOS.Desktop/BusinessOS.Desktop.csproj'; $dx=if(Test-Path $desktop){Get-Content $desktop -Raw}else{''}; Add-Check 'WinUI Desktop project' 'present' (Test-Path $desktop) (Test-Path $desktop); Add-Check 'Windows App SDK reference' 'present' ($dx -match 'Microsoft.WindowsAppSDK') ($dx -match 'Microsoft.WindowsAppSDK')
 } else { Add-Check 'WinUI gate' 'Windows verification' 'SKIPPED — requires Windows verification' $false $true }
-$Rows|Format-Table Component,Required,Detected,Status -AutoSize; Write-Host "Environment ready: $(if($Ready){'YES'}else{'NO'})"; if(-not $Ready){exit 1}
+Write-DoctorReport -Rows $Rows -Ready $Ready; if(-not $Ready){exit 1}

@@ -9,15 +9,21 @@ BusinessOS is a local-first Windows desktop application foundation. This reposit
 - PowerShell 7 (`pwsh`) for engineering scripts.
 - No Python or Excel runtime is required by production projects.
 
-## Full Windows verification
+## Verification
 
-Run the complete Block 1 verification on Windows:
+Cross-platform validation (does not build or smoke-test the WinUI project):
 
 ```powershell
-./eng/verify.ps1
+pwsh -NoProfile -File ./eng/verify-cross-platform.ps1
 ```
 
-This runs SDK diagnostics, solution membership checks, restore, formatting, Release build, WinUI smoke test, TRX verifier self-tests, test execution, TRX verification and vulnerable package scanning.
+Full Windows validation for Block 1:
+
+```powershell
+pwsh -NoProfile -File ./eng/verify-windows.ps1
+```
+
+The Windows verification performs restore, formatting checks, Release build, unit tests, architecture tests, TRX verification, environment tests, vulnerable package scanning and the real WinUI smoke test. Smoke-test diagnostics are written to `artifacts/smoke-test/`.
 
 ## Restore
 
@@ -48,7 +54,7 @@ dotnet run --project src/BusinessOS.Desktop/BusinessOS.Desktop.csproj -c Debug
 ```
 
 Expected window title: `BusinessOS`.
-Expected visible text: `BusinessOS` and `Fundament aplikacji został uruchomiony`.
+Expected visible text: `BusinessOS`, `Foundation`, `Fundament aplikacji został uruchomiony` and the assembly metadata version. The Block 1 desktop app is unpackaged (`WindowsPackageType=None`) and intentionally does not include MSIX or installer assets.
 
 ## Current scope
 

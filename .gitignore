@@ -1,0 +1,10 @@
+.tools/
+.cache/
+bin/
+obj/
+TestResults/
+*.trx
+*.log
+*.tmp
+*.user
+*.suo

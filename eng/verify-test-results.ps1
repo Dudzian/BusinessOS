@@ -1,15 +1,30 @@
 param([string]$ResultsDirectory = 'artifacts/test-results')
 $ErrorActionPreference = 'Stop'
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')
 Set-Location $repoRoot
-$trxFiles = Get-ChildItem -Path $ResultsDirectory -Recurse -Filter *.trx
+if (-not (Test-Path -LiteralPath $ResultsDirectory -PathType Container)) {
+    $fullResultsDirectory = [System.IO.Path]::GetFullPath($ResultsDirectory)
+    throw "TRX results directory does not exist: $fullResultsDirectory"
+}
+$resolvedResultsDirectory = (Resolve-Path -LiteralPath $ResultsDirectory -ErrorAction Stop).Path
+$trxFiles = @(
+    Get-ChildItem `
+        -LiteralPath $resolvedResultsDirectory `
+        -Recurse `
+        -File `
+        -Filter '*.trx' |
+        Sort-Object FullName
+)
 if (-not $trxFiles) { throw 'No TRX result files were generated.' }
 $total = 0
 $executed = 0
 $passed = 0
 $failed = 0
 foreach ($file in $trxFiles) {
-    [xml]$document = Get-Content $file.FullName -Raw
+    [xml]$document = Get-Content `
+        -LiteralPath $file.FullName `
+        -Raw `
+        -ErrorAction Stop
     $summary = $document.SelectSingleNode("/*[local-name()='TestRun']/*[local-name()='ResultSummary']")
     if ($null -eq $summary) { throw "TRX file has no ResultSummary element: $($file.FullName)" }
     $outcome = $summary.Attributes['outcome']?.Value

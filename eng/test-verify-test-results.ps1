@@ -1,38 +1,86 @@
 $ErrorActionPreference = 'Stop'
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')
 Set-Location $repoRoot
 if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) { throw 'Missing pwsh; cannot self-test TRX verifier.' }
 function Invoke-Verifier([string]$Directory) {
-    $outputFile = Join-Path ([System.IO.Path]::GetTempPath()) ("BusinessOS.TrxVerifier.Output." + [System.Guid]::NewGuid().ToString('N') + '.txt')
+    $process = $null
+
     try {
-        $process = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-File', './eng/verify-test-results.ps1', '-ResultsDirectory', $Directory) -RedirectStandardOutput $outputFile -RedirectStandardError $outputFile -NoNewWindow -Wait -PassThru
-        return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = Get-Content $outputFile -Raw }
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'pwsh'
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.CreateNoWindow = $true
+        $startInfo.WorkingDirectory = $repoRoot.Path
+
+        foreach ($argument in @(
+            '-NoProfile',
+            '-File',
+            (Join-Path $repoRoot.Path 'eng/verify-test-results.ps1'),
+            '-ResultsDirectory',
+            $Directory
+        )) {
+            [void]$startInfo.ArgumentList.Add([string]$argument)
+        }
+
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+
+        if (-not $process.Start()) {
+            throw 'Failed to start TRX verifier process.'
+        }
+
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+
+        $process.WaitForExit()
+
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            StdOut   = $stdout
+            StdErr   = $stderr
+            Output   = @($stdout, $stderr) -join [Environment]::NewLine
+        }
     }
     finally {
-        if (Test-Path $outputFile) { Remove-Item $outputFile -Force }
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
     }
 }
 function Write-Trx([string]$Directory, [string]$Content) {
-    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
-    $Content | Set-Content (Join-Path $Directory 'result.trx')
+    [System.IO.Directory]::CreateDirectory($Directory) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $Directory 'result.trx'), $Content)
 }
-function Assert-Succeeds([string]$Directory) {
+function Assert-Succeeds([string]$Directory, [int]$ExpectedTotal = 2) {
     $result = Invoke-Verifier $Directory
     if ($result.ExitCode -ne 0) { throw "Expected TRX verification to succeed: $Directory`n$result.Output" }
-    foreach ($line in @('Total tests discovered: 2', 'Executed tests: 2', 'Passed tests: 2', 'Failed tests: 0')) {
+    foreach ($line in @("Total tests discovered: $ExpectedTotal", "Executed tests: $ExpectedTotal", "Passed tests: $ExpectedTotal", 'Failed tests: 0')) {
         if ($result.Output -notmatch [regex]::Escape($line)) { throw "Expected verifier output to contain '$line'. Output:`n$result.Output" }
     }
+    if ($result.Output -notmatch [regex]::Escape('All discovered tests were executed and passed.')) { throw "Expected verifier output to confirm all tests passed. Output:`n$result.Output" }
 }
 function Assert-Fails([string]$Directory, [string]$CaseName) {
     $result = Invoke-Verifier $Directory
     if ($result.ExitCode -eq 0) { throw "Expected TRX verification to fail for $CaseName." }
 }
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("BusinessOS.TrxVerifier." + [System.Guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $tempRoot | Out-Null
+[System.IO.Directory]::CreateDirectory($tempRoot) | Out-Null
 try {
     $valid = Join-Path $tempRoot 'valid'
-    Copy-Item tests/fixtures/trx/minimal.trx (Join-Path (New-Item -ItemType Directory -Path $valid).FullName 'minimal.trx')
+    $validDirectory = [System.IO.Directory]::CreateDirectory($valid).FullName
+    Copy-Item -LiteralPath 'tests/fixtures/trx/minimal.trx' -Destination (Join-Path $validDirectory 'minimal.trx')
     Assert-Succeeds $valid
+
+    $validBracket = Join-Path $tempRoot "valid space[1] apostrof' nawiasy() znak`$dolara"
+    [System.IO.Directory]::CreateDirectory($validBracket) | Out-Null
+    [System.IO.File]::Copy((Join-Path $repoRoot 'tests/fixtures/trx/minimal.trx'), (Join-Path $validBracket 'result.trx'), $true)
+    [System.IO.File]::Copy((Join-Path $repoRoot 'tests/fixtures/trx/minimal.trx'), (Join-Path $validBracket 'result[1].trx'), $true)
+    Assert-Succeeds $validBracket 4
 
     $missing = Join-Path $tempRoot 'missing'
     Assert-Fails $missing 'missing directory or TRX files'
@@ -73,5 +121,5 @@ try {
     Write-Host 'TRX verifier self-test passed.'
 }
 finally {
-    if (Test-Path $tempRoot) { Remove-Item $tempRoot -Recurse -Force }
+    if (Test-Path -LiteralPath $tempRoot) { Remove-Item -LiteralPath $tempRoot -Recurse -Force }
 }

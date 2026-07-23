@@ -4,16 +4,25 @@ namespace BusinessOS.BuildingBlocks.Domain.Primitives;
 
 public readonly record struct CurrencyCode
 {
-    public string Value { get; }
+    private readonly string? value;
+
+    public string Value => value ?? string.Empty;
 
     public CurrencyCode(string value)
     {
-        if (!Regex.IsMatch(value ?? string.Empty, "^[A-Z]{3}$", RegexOptions.CultureInvariant))
+        ArgumentNullException.ThrowIfNull(value);
+
+        if (!Regex.IsMatch(
+                value,
+                "^[A-Z]{3}$",
+                RegexOptions.CultureInvariant))
         {
-            throw new ArgumentException("Currency code must use ISO 4217 format.", nameof(value));
+            throw new ArgumentException(
+                "Currency code must use ISO 4217 format.",
+                nameof(value));
         }
 
-        Value = value;
+        this.value = value;
     }
 
     public static CurrencyCode Pln => new("PLN");

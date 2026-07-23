@@ -12,10 +12,13 @@ public sealed class FoundationTests
     private static readonly DateTimeOffset FixedNow = new(2026, 7, 23, 12, 0, 0, TimeSpan.Zero);
     private static readonly UserId Actor = new(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
 
-    [Fact]
-    public void Currency_code_accepts_iso_4217_code()
+    [Theory]
+    [InlineData("PLN")]
+    [InlineData("EUR")]
+    [InlineData("USD")]
+    public void Currency_code_accepts_iso_4217_code(string value)
     {
-        new CurrencyCode("PLN").Value.Should().Be("PLN");
+        new CurrencyCode(value).Value.Should().Be(value);
     }
 
     [Theory]
@@ -25,6 +28,24 @@ public sealed class FoundationTests
     public void Currency_code_rejects_invalid_codes(string value)
     {
         FluentActions.Invoking(() => new CurrencyCode(value)).Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Currency_code_rejects_null()
+    {
+        var exception = Record.Exception(() => Activator.CreateInstance(typeof(CurrencyCode), [null]));
+
+        exception.Should().BeOfType<System.Reflection.TargetInvocationException>()
+            .Which.InnerException.Should().BeOfType<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Default_currency_code_has_safe_empty_value()
+    {
+        var currency = default(CurrencyCode);
+
+        currency.Value.Should().BeEmpty();
+        currency.ToString().Should().BeEmpty();
     }
 
     [Fact]

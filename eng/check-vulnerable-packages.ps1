@@ -111,8 +111,8 @@ function ConvertFrom-VulnerabilityReportJson {
     }
 
     foreach ($project in @($report.projects)) {
-        if ($null -eq $project.frameworks) {
-            throw "Project entry is missing frameworks: $($project.path)"
+        if ([string]::IsNullOrWhiteSpace([string]$project.path)) {
+            throw "Project entry is missing path for target: $Target"
         }
     }
 
@@ -154,21 +154,33 @@ foreach ($target in $targets) {
     [void]$reports.Add($report)
 
     foreach ($project in @($report.projects)) {
-        foreach ($framework in @($project.frameworks)) {
+        $frameworks = @($project.frameworks)
+
+        if ($frameworks.Count -eq 0) {
+            continue
+        }
+
+        foreach ($framework in $frameworks) {
+            if ($null -eq $framework) {
+                continue
+            }
+
             foreach ($collectionName in 'topLevelPackages', 'transitivePackages') {
                 foreach ($package in @($framework.$collectionName)) {
-                    if ($null -ne $package -and $null -ne $package.vulnerabilities -and @($package.vulnerabilities).Count -gt 0) {
-                        foreach ($vulnerability in @($package.vulnerabilities)) {
-                            [void]$vulnerablePackages.Add([pscustomobject]@{
-                                Project     = $project.path
-                                Framework   = $framework.framework
-                                Scope       = $collectionName
-                                Name        = $package.id
-                                Version     = $package.resolvedVersion
-                                Severity    = $vulnerability.severity
-                                AdvisoryUrl = $vulnerability.advisoryurl
-                            })
-                        }
+                    if ($null -eq $package -or $null -eq $package.vulnerabilities -or @($package.vulnerabilities).Count -le 0) {
+                        continue
+                    }
+
+                    foreach ($vulnerability in @($package.vulnerabilities)) {
+                        [void]$vulnerablePackages.Add([pscustomobject]@{
+                            Project     = $project.path
+                            Framework   = $framework.framework
+                            Scope       = $collectionName
+                            Name        = $package.id
+                            Version     = $package.resolvedVersion
+                            Severity    = $vulnerability.severity
+                            AdvisoryUrl = $vulnerability.advisoryurl
+                        })
                     }
                 }
             }

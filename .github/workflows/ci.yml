@@ -4,52 +4,55 @@ on:
   push:
     branches: [ main, work, work/block-1-foundation ]
 jobs:
+  cross-platform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-businessos
+      - name: Verify tool versions after setup
+        shell: pwsh
+        run: |
+          dotnet --version 2>&1 | Tee-Object .cache/cross-platform-tool-versions.log
+          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>&1 | Tee-Object .cache/cross-platform-tool-versions.log -Append
+      - name: Verify cross-platform gate
+        shell: pwsh
+        run: ./eng/verify-cross-platform.ps1 2>&1 | Tee-Object .cache/verify-cross-platform.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cross-platform-diagnostics
+          path: |
+            .cache/setup.log
+            .cache/doctor.txt
+            .cache/tool-versions.log
+            .cache/cross-platform-tool-versions.log
+            .cache/verify-cross-platform.log
+            .cache/environment-tests.log
+            artifacts/test-results/**
+            **/*.trx
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-          dotnet-quality: 'ga'
-      - name: .NET info
-        run: dotnet --info
-      - name: List solution projects
-        run: dotnet sln BusinessOS.sln list
-      - name: Verify solution membership
-        shell: pwsh
-        run: ./eng/check-solution-projects.ps1
-      - name: Restore
-        run: dotnet restore BusinessOS.sln
-      - name: Verify formatting
-        run: dotnet format BusinessOS.sln --verify-no-changes
-      - name: Build Release
-        run: dotnet build BusinessOS.sln --configuration Release --no-restore
-      - name: Smoke test desktop application
-        shell: pwsh
-        run: ./eng/smoke-test-desktop.ps1 -Configuration Release
-      - name: Self-test TRX verifier
-        shell: pwsh
-        run: ./eng/verify-test-results.ps1 -ResultsDirectory tests/fixtures/trx
-      - name: Self-test TRX verifier failure paths
-        shell: pwsh
-        run: ./eng/test-verify-test-results.ps1
-      - name: Clean previous test results
+      - uses: ./.github/actions/setup-businessos
+      - name: Verify tool versions after setup
         shell: pwsh
         run: |
-          if (Test-Path artifacts/test-results) {
-            Remove-Item artifacts/test-results -Recurse -Force
-          }
-      - name: Test Release
-        run: dotnet test BusinessOS.sln --configuration Release --no-build --logger trx --results-directory artifacts/test-results
-      - name: Verify TRX test results
+          dotnet --version 2>&1 | Tee-Object .cache/windows-tool-versions.log
+          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>&1 | Tee-Object .cache/windows-tool-versions.log -Append
+      - name: Verify Windows gate
         shell: pwsh
-        run: ./eng/verify-test-results.ps1
-      - name: Vulnerable package scan
-        shell: pwsh
-        run: ./eng/check-vulnerable-packages.ps1
+        run: ./eng/verify-windows.ps1 2>&1 | Tee-Object .cache/verify-windows.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
-          path: artifacts/test-results/**
+          name: windows-diagnostics
+          path: |
+            .cache/setup.log
+            .cache/doctor.txt
+            .cache/tool-versions.log
+            .cache/windows-tool-versions.log
+            .cache/verify-windows.log
+            artifacts/test-results/**
+            **/*.trx
+            artifacts/smoke-test/**

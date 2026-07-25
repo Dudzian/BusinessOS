@@ -12,7 +12,10 @@
       "src/Modules/Companies/BusinessOS.Modules.Companies.Domain/BusinessOS.Modules.Companies.Domain.csproj",
       "src/Modules/Companies/BusinessOS.Modules.Companies.Application/BusinessOS.Modules.Companies.Application.csproj",
       "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj",
-      "tests/BusinessOS.ArchitectureTests/BusinessOS.ArchitectureTests.csproj"
+      "tests/BusinessOS.ArchitectureTests/BusinessOS.ArchitectureTests.csproj",
+      "src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj",
+      "tests/BusinessOS.IntegrationTests/BusinessOS.IntegrationTests.csproj",
+      "tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj"
     ]
   }
 }

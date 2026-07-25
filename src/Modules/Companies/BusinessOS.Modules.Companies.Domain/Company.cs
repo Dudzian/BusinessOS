@@ -25,7 +25,7 @@ public sealed class Company
 
     public string DisplayName { get; private set; } = string.Empty;
 
-    public TaxIdentificationNumber TaxIdentificationNumber { get; private set; }
+    public TaxIdentificationNumber? TaxIdentificationNumber { get; private set; }
 
     public string CountryCode { get; private set; } = "PL";
 
@@ -63,8 +63,10 @@ public sealed class Company
             throw new ArgumentException("Legal name is required.", nameof(legalName));
         }
 
-        var tax = new TaxIdentificationNumber(taxIdentificationNumber);
-        if (string.Equals(countryCode, "PL", StringComparison.Ordinal) && !tax.IsValidForPoland)
+        TaxIdentificationNumber? tax = string.IsNullOrWhiteSpace(taxIdentificationNumber)
+            ? null
+            : new TaxIdentificationNumber(taxIdentificationNumber);
+        if (string.Equals(countryCode, "PL", StringComparison.Ordinal) && (tax is null || !tax.Value.IsValidForPoland))
         {
             throw new ArgumentException("Invalid Polish NIP.", nameof(taxIdentificationNumber));
         }

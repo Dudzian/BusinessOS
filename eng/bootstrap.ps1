@@ -6,6 +6,8 @@ dotnet --info
 if ($LASTEXITCODE -ne 0) { throw "dotnet --info failed with exit code $LASTEXITCODE." }
 dotnet workload list
 if ($LASTEXITCODE -ne 0) { throw "dotnet workload list failed with exit code $LASTEXITCODE." }
+dotnet tool restore
+if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed with exit code $LASTEXITCODE." }
 dotnet restore BusinessOS.sln
 if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXITCODE." }
 ./eng/check-solution-projects.ps1

@@ -63,7 +63,43 @@ public readonly record struct EmailAddress(string Value);
 
 public readonly record struct TaxIdentificationNumber(string? Value)
 {
-    public bool IsValidForPoland => string.IsNullOrWhiteSpace(Value) || Regex.IsMatch(Value, "^[0-9]{10}$", RegexOptions.CultureInvariant);
+    public bool IsValidForPoland
+    {
+        get
+        {
+            if (Value is not { Length: 10 })
+            {
+                return false;
+            }
+
+            ReadOnlySpan<int> weights = [6, 5, 7, 2, 3, 4, 5, 6, 7];
+            var weightedSum = 0;
+            var allDigitsIdentical = true;
+
+            for (var index = 0; index < Value.Length; index++)
+            {
+                var character = Value[index];
+                if (character is < '0' or > '9')
+                {
+                    return false;
+                }
+
+                allDigitsIdentical &= character == Value[0];
+                if (index < weights.Length)
+                {
+                    weightedSum += (character - '0') * weights[index];
+                }
+            }
+
+            if (allDigitsIdentical)
+            {
+                return false;
+            }
+
+            var checksum = weightedSum % 11;
+            return checksum != 10 && checksum == Value[9] - '0';
+        }
+    }
 }
 
 public readonly record struct DateRange

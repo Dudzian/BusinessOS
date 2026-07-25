@@ -91,7 +91,7 @@ public sealed class ArchitectureRulesTests
     }
 
     [Fact]
-    public void Project_references_follow_block_1_boundaries()
+    public void Project_references_follow_modular_boundaries()
     {
         var root = FindRepositoryRoot();
         var references = LoadProjectReferences(root);
@@ -121,6 +121,56 @@ public sealed class ArchitectureRulesTests
             .Should().Contain("src/BusinessOS.AppHost/BusinessOS.AppHost.csproj");
         references["src/BusinessOS.Desktop/BusinessOS.Desktop.csproj"]
             .Should().NotContain(reference => reference.Contains(".Infrastructure", StringComparison.Ordinal));
+    }
+
+
+    [Fact]
+    public void Domain_assemblies_do_not_depend_on_EF_Core_or_SQLite()
+    {
+        foreach (var assembly in DomainAssemblies)
+        {
+            Types.InAssembly(assembly).ShouldNot().HaveDependencyOnAny("Microsoft.EntityFrameworkCore", "Microsoft.Data.Sqlite").GetResult().IsSuccessful.Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public void Application_projects_do_not_depend_on_Infrastructure_and_module_infrastructure_boundaries_are_preserved()
+    {
+        var references = LoadProjectReferences(FindRepositoryRoot());
+        foreach (var (project, projectReferences) in references)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            if (name.EndsWith(".Application", StringComparison.Ordinal))
+            {
+                projectReferences.Should().NotContain(reference => reference.Contains(".Infrastructure", StringComparison.Ordinal));
+            }
+            if (name.EndsWith(".Infrastructure", StringComparison.Ordinal) && name.StartsWith("BusinessOS.Modules.", StringComparison.Ordinal))
+            {
+                var ownModule = name[..name.LastIndexOf(".Infrastructure", StringComparison.Ordinal)];
+                projectReferences.Where(reference => reference.Contains(".Infrastructure", StringComparison.Ordinal)).Should().BeEmpty();
+                projectReferences.Where(reference => reference.Contains(".Domain", StringComparison.Ordinal) || reference.Contains(".Application", StringComparison.Ordinal)).Should().OnlyContain(reference => reference.Contains(ownModule, StringComparison.Ordinal));
+            }
+        }
+    }
+
+    [Fact]
+    public void AppHost_is_only_production_composition_root_allowed_to_reference_module_infrastructure()
+    {
+        var references = LoadProjectReferences(FindRepositoryRoot());
+        references["src/BusinessOS.Desktop/BusinessOS.Desktop.csproj"].Should().NotContain(reference => reference.Contains(".Infrastructure", StringComparison.Ordinal));
+        references["src/BusinessOS.AppHost/BusinessOS.AppHost.csproj"].Should().Contain(reference => reference.Contains("BusinessOS.Modules.Companies.Infrastructure", StringComparison.Ordinal));
+        references.Where(item => item.Key.StartsWith("src/", StringComparison.Ordinal) && !item.Key.Equals("src/BusinessOS.AppHost/BusinessOS.AppHost.csproj", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(item => item.Value)
+            .Should().NotContain(reference => reference.Contains("BusinessOS.Modules.Companies.Infrastructure", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Cross_platform_filter_contains_companies_infrastructure_and_persistence_tests()
+    {
+        var projects = ReadSolutionFilterProjects(Path.Combine(FindRepositoryRoot(), "BusinessOS.CrossPlatform.slnf"));
+        projects.Should().Contain("src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj");
+        projects.Should().Contain("tests/BusinessOS.IntegrationTests/BusinessOS.IntegrationTests.csproj");
+        projects.Should().Contain("tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj");
     }
 
     [Fact]

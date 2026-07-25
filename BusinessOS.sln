@@ -34,6 +34,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.ArchitectureTest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.UnitTests", "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj", "{7370F961-D79D-5F3D-9A73-070C26E1C060}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.IntegrationTests", "tests/BusinessOS.IntegrationTests/BusinessOS.IntegrationTests.csproj", "{7C1B63F0-D90B-50F1-9A9C-6E260D3E3AB1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.MigrationTests", "tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj", "{0BCF3651-39A2-5B0B-9D99-19E8D8DF4FB6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -104,6 +108,14 @@ Global
 		{7370F961-D79D-5F3D-9A73-070C26E1C060}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7370F961-D79D-5F3D-9A73-070C26E1C060}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7370F961-D79D-5F3D-9A73-070C26E1C060}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C1B63F0-D90B-50F1-9A9C-6E260D3E3AB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C1B63F0-D90B-50F1-9A9C-6E260D3E3AB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C1B63F0-D90B-50F1-9A9C-6E260D3E3AB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C1B63F0-D90B-50F1-9A9C-6E260D3E3AB1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0BCF3651-39A2-5B0B-9D99-19E8D8DF4FB6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0BCF3651-39A2-5B0B-9D99-19E8D8DF4FB6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0BCF3651-39A2-5B0B-9D99-19E8D8DF4FB6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0BCF3651-39A2-5B0B-9D99-19E8D8DF4FB6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

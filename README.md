@@ -74,10 +74,39 @@ Deferred to later blocks:
 
 - audit log;
 - background jobs and durable queues;
-- integration and migration test projects, created when the persistence block starts;
-- production SQLite schema, mappings and migrations;
-- company persistence and UI workflows;
-- business project UI workflows;
+- Companies CRUD UI;
+- startup migration orchestration;
+- BusinessProjects persistence and UI;
+- Budgeting persistence and UI;
 - backup and restore;
 - MSIX installer;
 - GymOS compatibility and financial engine.
+
+
+## Delivery blocks
+
+- **Block 1 — foundation**: modular monolith structure, diagnostics, environment checks, test result verification, and dependency vulnerability scanning.
+- **Block 2A — Companies SQLite persistence foundation**: EF Core 10 + SQLite infrastructure for the Companies module, including `CompaniesDbContext`, explicit mapping, local migrations, integration tests, and migration tests.
+
+The default local database path is `%LocalAppData%/BusinessOS/Data/businessos.db`. It can be overridden with configuration key `BusinessOS:Persistence:DatabasePath`. Host construction only registers services; migrations are **not** automatically executed at application startup in Block 2A. Companies CRUD UI remains a later stage.
+
+Restore local tools with:
+
+```bash
+dotnet tool restore
+```
+
+List Companies migrations with:
+
+```bash
+dotnet ef migrations list --project ./src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj --startup-project ./src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj --context CompaniesDbContext
+```
+
+Run persistence tests with:
+
+```bash
+dotnet test ./tests/BusinessOS.IntegrationTests/BusinessOS.IntegrationTests.csproj --configuration Release
+dotnet test ./tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj --configuration Release
+```
+
+See [docs/persistence.md](docs/persistence.md) for persistence design notes.

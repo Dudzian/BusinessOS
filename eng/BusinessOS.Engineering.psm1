@@ -15,6 +15,15 @@ function Read-BusinessOSBootstrapLock {
   [pscustomobject]$data
 }
 function Test-VersionAtLeast { param([string]$Detected,[string]$Minimum) try { [version]$Detected -ge [version]$Minimum } catch { $false } }
+function Test-BusinessOSDotnetSdkCompatibility {
+  param([string]$Detected,[string]$Required,[string]$RollForward)
+  try { $detectedVersion=[version]$Detected; $requiredVersion=[version]$Required } catch { return $false }
+  if ($detectedVersion -eq $requiredVersion) { return $true }
+  $RollForward -eq 'latestFeature' -and
+    $detectedVersion.Major -eq $requiredVersion.Major -and
+    $detectedVersion.Minor -eq $requiredVersion.Minor -and
+    $detectedVersion -gt $requiredVersion
+}
 function Get-BusinessOSToolPath { param([Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$RelativeRoot,[Parameter(Mandatory)][string]$BaseName) $exe = if ($IsWindows) { "$BaseName.exe" } else { $BaseName }; Join-Path (Join-Path $Root $RelativeRoot) $exe }
 function ConvertTo-OutputLines {
   param([AllowNull()][string]$Text)
@@ -62,4 +71,4 @@ function Get-BusinessOSCrossPlatformFilterProjects {
   $json=Get-Content -LiteralPath $FilterPath -Raw | ConvertFrom-Json
   @($json.solution.projects | ForEach-Object { Join-Path $Root $_ })
 }
-Export-ModuleMember -Function Get-BusinessOSRepoRoot,Read-BusinessOSEnvironmentLock,Read-BusinessOSBootstrapLock,Invoke-CheckedCommand,Test-VersionAtLeast,Get-BusinessOSToolPath,Get-BusinessOSProjects,Get-BusinessOSCrossPlatformFilterProjects
+Export-ModuleMember -Function Get-BusinessOSRepoRoot,Read-BusinessOSEnvironmentLock,Read-BusinessOSBootstrapLock,Invoke-CheckedCommand,Test-VersionAtLeast,Test-BusinessOSDotnetSdkCompatibility,Get-BusinessOSToolPath,Get-BusinessOSProjects,Get-BusinessOSCrossPlatformFilterProjects

@@ -23,8 +23,8 @@ $expected=@('src/BusinessOS.Desktop/BusinessOS.Desktop.csproj','src/BusinessOS.A
 $solution=Join-Path $Root 'BusinessOS.sln'; $projectLines=if(Test-Path $solution){@((Select-String -Path $solution -Pattern '^Project\('))}else{@()}
 Add-Check 'BusinessOS.sln' 'non-empty solution' "$($projectLines.Count) project entries" ($projectLines.Count -gt 0)
 foreach($p in $expected){Add-Check $p 'present' (Test-Path (Join-Path $Root $p)) (Test-Path (Join-Path $Root $p))}
-try{$g=Get-Content (Join-Path $Root 'global.json') -Raw|ConvertFrom-Json; $gv=$g.sdk.version}catch{$gv='invalid'}; Add-Check 'global.json SDK' $Lock.dotnetSdk $gv ($gv -eq $Lock.dotnetSdk)
-$dnLocal=Get-BusinessOSToolPath $Root $Lock.dotnetRoot 'dotnet'; $dn=if(Test-Path $dnLocal){$dnLocal}elseif(Get-Command dotnet -ErrorAction SilentlyContinue){(Get-Command dotnet).Source}else{$null}; $dv=if($dn){try{& $dn --version}catch{'error'}}else{'missing'}; Add-Check '.NET SDK' $Lock.dotnetSdk $dv ($dv -eq $Lock.dotnetSdk)
+try{$g=Get-Content (Join-Path $Root 'global.json') -Raw|ConvertFrom-Json; $gv=$g.sdk.version; $rollForward=$g.sdk.rollForward}catch{$gv='invalid'; $rollForward=$null}; Add-Check 'global.json SDK' $Lock.dotnetSdk $gv ($gv -eq $Lock.dotnetSdk)
+$dnLocal=Get-BusinessOSToolPath $Root $Lock.dotnetRoot 'dotnet'; $dn=if(Test-Path $dnLocal){$dnLocal}elseif(Get-Command dotnet -ErrorAction SilentlyContinue){(Get-Command dotnet).Source}else{$null}; $dv=if($dn){try{& $dn --version}catch{'error'}}else{'missing'}; Add-Check '.NET SDK' "$($Lock.dotnetSdk) ($rollForward)" $dv (Test-BusinessOSDotnetSdkCompatibility $dv $Lock.dotnetSdk $rollForward)
 $pwLocal=Get-BusinessOSToolPath $Root $Lock.powershellRoot 'pwsh'; $pw=if(Test-Path $pwLocal){$pwLocal}elseif(Get-Command pwsh -ErrorAction SilentlyContinue){(Get-Command pwsh).Source}else{$null}; $pv=if($pw){try{& $pw -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'}catch{'error'}}else{'missing'}; Add-Check 'PowerShell' ">= $($Lock.powershell.minimumVersion)" $pv (Test-VersionAtLeast $pv $Lock.powershell.minimumVersion)
 function Test-NuGetCacheWritable {
   param([Parameter(Mandatory)][string]$CachePath)

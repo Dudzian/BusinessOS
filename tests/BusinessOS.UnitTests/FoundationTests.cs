@@ -101,7 +101,7 @@ public sealed class FoundationTests
         var company = CreateCompany(
             legalName: "Dudzian sp. z o.o.",
             displayName: "Dudzian",
-            taxIdentificationNumber: "1234567890");
+            taxIdentificationNumber: "5260250995");
 
         company.DisplayName.Should().Be("Dudzian");
         company.Version.Value.Should().Be(1);
@@ -117,12 +117,73 @@ public sealed class FoundationTests
     }
 
     [Fact]
-    public void Company_rejects_invalid_polish_nip()
+    public void Polish_company_accepts_valid_nip_checksum()
+    {
+        var company = CreateCompany(taxIdentificationNumber: "5260250995");
+
+        company.TaxIdentificationNumber.Should().Be(new TaxIdentificationNumber("5260250995"));
+    }
+
+    [Fact]
+    public void Polish_company_rejects_nip_with_invalid_length()
     {
         FluentActions
             .Invoking(() => CreateCompany(taxIdentificationNumber: "123"))
             .Should()
             .Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Polish_company_rejects_nip_with_non_digit_characters()
+    {
+        FluentActions
+            .Invoking(() => CreateCompany(taxIdentificationNumber: "526025099A"))
+            .Should()
+            .Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Polish_company_rejects_ten_digit_nip_with_invalid_checksum()
+    {
+        FluentActions
+            .Invoking(() => CreateCompany(taxIdentificationNumber: "5260250994"))
+            .Should()
+            .Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Polish_company_rejects_repeated_zero_nip()
+    {
+        FluentActions
+            .Invoking(() => CreateCompany(taxIdentificationNumber: "0000000000"))
+            .Should()
+            .Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Polish_company_rejects_missing_tax_identification_number()
+    {
+        FluentActions
+            .Invoking(() => CreateCompany(taxIdentificationNumber: null))
+            .Should()
+            .Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Foreign_company_can_be_created_without_tax_identification_number()
+    {
+        var company = Company.Create(
+            OrganizationId.New(),
+            "Foreign company",
+            "Foreign company",
+            null,
+            "DE",
+            new CurrencyCode("EUR"),
+            "Europe/Berlin",
+            Actor,
+            FixedNow);
+
+        company.TaxIdentificationNumber.Should().BeNull();
     }
 
     [Fact]
@@ -167,7 +228,7 @@ public sealed class FoundationTests
     private static Company CreateCompany(
         string legalName = "Dudzian",
         string displayName = "Dudzian",
-        string? taxIdentificationNumber = null)
+        string? taxIdentificationNumber = "5260250995")
     {
         return Company.Create(
             OrganizationId.New(),

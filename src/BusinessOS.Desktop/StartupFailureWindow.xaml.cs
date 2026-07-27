@@ -30,13 +30,16 @@ public sealed partial class StartupFailureWindow : Window
     private async void Retry_Click(object sender, RoutedEventArgs e)
     {
         RetryButton.IsEnabled = false;
+        CloseButton.IsEnabled = false;
         try
         {
             var result = await retry().ConfigureAwait(true);
+            if (!isActive) return;
+
             if (result.Succeeded)
             {
                 retrySucceeded();
-                if (isActive) Close();
+                return;
             }
             else
             {
@@ -45,11 +48,15 @@ public sealed partial class StartupFailureWindow : Window
         }
         catch (Exception exception)
         {
-            ShowResult(reportUnexpectedRetryFailure(exception));
+            if (isActive) ShowResult(reportUnexpectedRetryFailure(exception));
         }
         finally
         {
-            if (isActive) RetryButton.IsEnabled = true;
+            if (isActive)
+            {
+                RetryButton.IsEnabled = true;
+                CloseButton.IsEnabled = true;
+            }
         }
     }
 

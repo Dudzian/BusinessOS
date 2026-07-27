@@ -6,6 +6,38 @@ Import-Module (Join-Path $RepoRoot 'eng/BusinessOS.Provisioning.psm1') -Force
 $log=Join-Path $RepoRoot '.cache/environment-tests.log'; New-Item -ItemType Directory -Force (Split-Path $log)|Out-Null; ''|Set-Content -LiteralPath $log
 $script:Failures=0
 function Assert($Name,[scriptblock]$Body){try{& $Body; "PASS $Name"|Tee-Object -FilePath $log -Append}catch{$script:Failures++; "FAIL $Name :: $($_.Exception.Message)"|Tee-Object -FilePath $log -Append; Write-Error $_}}
+Assert 'Wait-BusinessOSCondition requires consecutive successes' {
+    $state=[pscustomobject]@{ Calls=0; Values=@($false,$true,$true,$false,$true,$true,$true) }
+    Wait-BusinessOSCondition -TimeoutMessage 'sequence timed out' -TimeoutSeconds 1 -PollingMilliseconds 1 -RequiredConsecutiveSuccesses 3 -Condition {
+        $value=$state.Values[$state.Calls]
+        $state.Calls++
+        return $value
+    }
+    if($state.Calls -ne 7){throw "expected 7 condition calls, got $($state.Calls)"}
+}
+Assert 'Wait-BusinessOSCondition resets consecutive successes after false' {
+    $state=[pscustomobject]@{ Calls=0; Values=@($true,$true,$false,$true,$true,$true) }
+    Wait-BusinessOSCondition -TimeoutMessage 'reset sequence timed out' -TimeoutSeconds 1 -PollingMilliseconds 1 -RequiredConsecutiveSuccesses 3 -Condition {
+        $value=$state.Values[$state.Calls]
+        $state.Calls++
+        return $value
+    }
+    if($state.Calls -ne 6){throw "false did not reset the counter; expected 6 calls, got $($state.Calls)"}
+}
+Assert 'Wait-BusinessOSCondition defaults to one success' {
+    $state=[pscustomobject]@{ Calls=0 }
+    Wait-BusinessOSCondition -TimeoutMessage 'single success timed out' -TimeoutSeconds 1 -PollingMilliseconds 1 -Condition { $state.Calls++; return $true }
+    if($state.Calls -ne 1){throw "expected one condition call, got $($state.Calls)"}
+}
+Assert 'Wait-BusinessOSCondition reports timeout message' {
+    $message='controlled polling timeout'
+    try {
+        Wait-BusinessOSCondition -TimeoutMessage $message -TimeoutSeconds 1 -PollingMilliseconds 1 -Condition { return $false }
+        throw 'expected polling timeout'
+    } catch {
+        if($_.Exception.Message -notlike "*$message*"){throw "timeout message was not preserved: $($_.Exception.Message)"}
+    }
+}
 function Invoke-ProcessForTest {
     [CmdletBinding()]
     param(

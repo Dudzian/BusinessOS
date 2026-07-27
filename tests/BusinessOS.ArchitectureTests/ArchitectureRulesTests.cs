@@ -165,9 +165,10 @@ public sealed class ArchitectureRulesTests
     }
 
     [Fact]
-    public void Cross_platform_filter_contains_companies_infrastructure_and_persistence_tests()
+    public void Cross_platform_filter_contains_AppHost_companies_infrastructure_and_persistence_tests()
     {
         var projects = ReadSolutionFilterProjects(Path.Combine(FindRepositoryRoot(), "BusinessOS.CrossPlatform.slnf"));
+        projects.Should().Contain("src/BusinessOS.AppHost/BusinessOS.AppHost.csproj");
         projects.Should().Contain("src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj");
         projects.Should().Contain("tests/BusinessOS.IntegrationTests/BusinessOS.IntegrationTests.csproj");
         projects.Should().Contain("tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj");
@@ -180,7 +181,6 @@ public sealed class ArchitectureRulesTests
 
         projects.Should().NotBeEmpty();
         projects.Should().NotContain("src/BusinessOS.Desktop/BusinessOS.Desktop.csproj");
-        projects.Should().NotContain("src/BusinessOS.AppHost/BusinessOS.AppHost.csproj");
     }
 
     [Fact]

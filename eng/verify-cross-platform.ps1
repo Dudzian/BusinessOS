@@ -5,9 +5,9 @@ $Root=Get-BusinessOSRepoRoot; $art=Join-Path $Root 'artifacts/test-results'; if(
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'check-solution-projects.ps1')) $Root
 $filter=Join-Path $Root 'BusinessOS.CrossPlatform.slnf'; $filterProjects=Get-BusinessOSCrossPlatformFilterProjects $Root $filter
-$required=@('BusinessOS.BuildingBlocks.Domain.csproj','BusinessOS.BuildingBlocks.Application.csproj','BusinessOS.Modules.Companies.Infrastructure.csproj','BusinessOS.UnitTests.csproj','BusinessOS.ArchitectureTests.csproj','BusinessOS.IntegrationTests.csproj','BusinessOS.MigrationTests.csproj')
+$required=@('BusinessOS.AppHost.csproj','BusinessOS.BuildingBlocks.Domain.csproj','BusinessOS.BuildingBlocks.Application.csproj','BusinessOS.Modules.Companies.Infrastructure.csproj','BusinessOS.UnitTests.csproj','BusinessOS.ArchitectureTests.csproj','BusinessOS.IntegrationTests.csproj','BusinessOS.MigrationTests.csproj')
 foreach($r in $required){ if(-not(($filterProjects|Split-Path -Leaf) -contains $r)){ throw "Cross-platform solution filter is missing required project: $r" } }
-if(($filterProjects -join ';') -match 'BusinessOS\.Desktop|BusinessOS\.AppHost|BusinessProjects\.Infrastructure|BuildingBlocks\.Infrastructure'){throw 'Cross-platform solution filter contains a deferred project'}
+if(($filterProjects -join ';') -match 'BusinessOS\.Desktop|BusinessProjects\.Infrastructure|BuildingBlocks\.Infrastructure'){throw 'Cross-platform solution filter contains a deferred project'}
 Invoke-CheckedCommand dotnet @('restore',$filter) $Root
 Invoke-CheckedCommand dotnet @('format',$filter,'--verify-no-changes') $Root
 Invoke-CheckedCommand dotnet @('build',$filter,'-c','Release','--no-restore') $Root

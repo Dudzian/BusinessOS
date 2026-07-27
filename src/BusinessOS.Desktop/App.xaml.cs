@@ -2,8 +2,6 @@ using System.Reflection;
 using BusinessOS.AppHost;
 using BusinessOS.Desktop.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 
 namespace BusinessOS.Desktop;
@@ -46,11 +44,26 @@ public partial class App : Application
 
     private void ShowMainWindow()
     {
+        if (Volatile.Read(ref shutdownStarted) != 0) return;
+
+        var activeHost = hostStartup.Host;
+        if (activeHost is null || !hostStartup.HostStarted) return;
+
         var previous = window;
-        window = new MainWindow(ActivatorUtilities.CreateInstance<MainViewModel>(hostStartup.Host!.Services));
-        window.Closed += OnWindowClosed;
-        window.Activate();
-        if (previous is not null) { previous.Closed -= OnWindowClosed; previous.Close(); }
+        var mainWindow = new MainWindow(ActivatorUtilities.CreateInstance<MainViewModel>(activeHost.Services));
+        if (Volatile.Read(ref shutdownStarted) != 0 ||
+            !ReferenceEquals(activeHost, hostStartup.Host) ||
+            !hostStartup.HostStarted)
+        {
+            mainWindow.Close();
+            return;
+        }
+
+        if (previous is not null) previous.Closed -= OnWindowClosed;
+        window = mainWindow;
+        mainWindow.Closed += OnWindowClosed;
+        mainWindow.Activate();
+        previous?.Close();
     }
 
     private void ShowFailure(ApplicationStartupResult result)
@@ -59,27 +72,32 @@ public partial class App : Application
             result,
             EnsureHostAndPersistenceReadyAsync,
             ShowMainWindow,
-            ShutdownAndCloseAsync,
+            ShutdownAndExitAsync,
             exception => hostStartup.ReportUnexpectedFailure("Retry", "Nie udało się ponowić przygotowania bazy danych.", exception));
         window.Closed += OnWindowClosed;
         window.Activate();
     }
 
-    private async void OnWindowClosed(object sender, WindowEventArgs args) => await ShutdownAsync().ConfigureAwait(true);
-
-    private async Task ShutdownAndCloseAsync()
+    private async void OnWindowClosed(object sender, WindowEventArgs args)
     {
-        await ShutdownAsync().ConfigureAwait(true);
-        window?.Close();
+        if (ReferenceEquals(window, sender)) window = null;
+        await ShutdownAndExitAsync().ConfigureAwait(true);
     }
 
-    private async Task ShutdownAsync()
+    private async Task ShutdownAndExitAsync()
     {
         if (Interlocked.Exchange(ref shutdownStarted, 1) != 0) return;
-        var host = hostStartup.Host;
-        if (host is null) return;
-        try { await host.StopAsync().ConfigureAwait(true); }
-        catch (Exception exception) { host.Services.GetRequiredService<ILogger<App>>().LogError(exception, "Host shutdown failed."); }
-        finally { host.Dispose(); }
+        var currentWindow = window;
+        window = null;
+        if (currentWindow is not null) currentWindow.Closed -= OnWindowClosed;
+        try
+        {
+            await hostStartup.ShutdownAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        finally
+        {
+            currentWindow?.Close();
+            Exit();
+        }
     }
 }

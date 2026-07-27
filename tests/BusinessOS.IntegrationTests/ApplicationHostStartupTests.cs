@@ -190,18 +190,268 @@ public sealed class ApplicationHostStartupTests
         }
     }
 
+    [Fact]
+    public async Task Shutdown_stops_disposes_and_resets_a_started_host()
+    {
+        var host = FakeHost.Successful();
+        var startup = new ApplicationHostStartup(() => host);
+
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeTrue();
+        await startup.ShutdownAsync(CancellationToken.None);
+
+        host.StartCalls.Should().Be(1);
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Shutdown_is_idempotent()
+    {
+        var host = FakeHost.Successful();
+        var startup = new ApplicationHostStartup(() => host);
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeTrue();
+
+        await Task.WhenAll(
+            startup.ShutdownAsync(CancellationToken.None),
+            startup.ShutdownAsync(CancellationToken.None),
+            startup.ShutdownAsync(CancellationToken.None));
+
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Stop_failure_does_not_prevent_dispose_and_reset()
+    {
+        var loggerProvider = new RecordingLoggerProvider();
+        var host = new FakeHost(
+            _ => Task.CompletedTask,
+            stopException: new IOException("stop failed"),
+            loggerProvider: loggerProvider);
+        var startup = new ApplicationHostStartup(() => host);
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeTrue();
+
+        var action = () => startup.ShutdownAsync(CancellationToken.None);
+
+        await action.Should().NotThrowAsync();
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+        loggerProvider.Entries.Should().ContainSingle(entry =>
+            entry.Message.Contains("StopHost", StringComparison.Ordinal) &&
+            entry.Exception.Message == "stop failed");
+    }
+
+    [Fact]
+    public async Task Dispose_failure_does_not_retain_stopped_host()
+    {
+        var host = new FakeHost(_ => Task.CompletedTask, disposeException: new IOException("dispose failed"));
+        var startup = new ApplicationHostStartup(() => host);
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeTrue();
+
+        await startup.ShutdownAsync(CancellationToken.None);
+        await startup.ShutdownAsync(CancellationToken.None);
+
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Startup_failure_retry_success_then_shutdown_uses_only_the_successful_host()
+    {
+        var failedHost = new FakeHost(_ => Task.FromException(new IOException("start failed")));
+        var successfulHost = FakeHost.Successful();
+        var hosts = new Queue<IHost>([failedHost, successfulHost]);
+        var startup = new ApplicationHostStartup(hosts.Dequeue);
+
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeFalse();
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeTrue();
+        await startup.ShutdownAsync(CancellationToken.None);
+
+        failedHost.StartCalls.Should().Be(1);
+        failedHost.StopCalls.Should().Be(0);
+        failedHost.DisposeAsyncCalls.Should().Be(1);
+        successfulHost.StartCalls.Should().Be(1);
+        successfulHost.StopCalls.Should().Be(1);
+        successfulHost.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Shutdown_requested_before_retry_prevents_a_new_host()
+    {
+        var host = new FakeHost(_ => Task.CompletedTask, coordinator: new ControlledFailureCoordinator());
+        var factoryCalls = 0;
+        var startup = new ApplicationHostStartup(() => { factoryCalls++; return host; });
+
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeFalse();
+        await startup.ShutdownAsync(CancellationToken.None);
+        var retry = await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None);
+
+        retry.Status.Should().Be(ApplicationStartupStatus.Cancelled);
+        factoryCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Shutdown_racing_successful_retry_stops_the_resulting_host_exactly_once()
+    {
+        var retryEntered = NewCompletionSource();
+        var releaseRetry = NewCompletionSource();
+        var coordinator = new SequencedCoordinator(
+            _ => Task.FromResult(ControlledFailure()),
+            async _ => { retryEntered.SetResult(); await releaseRetry.Task; return ApplicationStartupResult.Success(false, false, null); });
+        var host = new FakeHost(_ => Task.CompletedTask, coordinator: coordinator);
+        var factoryCalls = 0;
+        var startup = new ApplicationHostStartup(() => { factoryCalls++; return host; });
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeFalse();
+
+        var retry = startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None);
+        await retryEntered.Task;
+        var shutdown = startup.ShutdownAsync(CancellationToken.None);
+        releaseRetry.SetResult();
+        await Task.WhenAll(retry, shutdown);
+
+        var retryResult = await retry;
+        retryResult.Status.Should().Be(ApplicationStartupStatus.Cancelled);
+        retryResult.Succeeded.Should().BeFalse();
+        factoryCalls.Should().Be(1);
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Shutdown_requested_while_coordinator_returns_success_never_exposes_success()
+    {
+        var coordinatorEntered = NewCompletionSource();
+        var releaseCoordinator = NewCompletionSource();
+        var coordinatorReturnedSuccess = false;
+        var coordinator = new SequencedCoordinator(async _ =>
+        {
+            coordinatorEntered.SetResult();
+            await releaseCoordinator.Task;
+            coordinatorReturnedSuccess = true;
+            return ApplicationStartupResult.Success(false, false, null);
+        });
+        var host = new FakeHost(_ => Task.CompletedTask, coordinator: coordinator);
+        var startup = new ApplicationHostStartup(() => host);
+
+        var initialization = startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None);
+        await coordinatorEntered.Task;
+        var shutdown = startup.ShutdownAsync(CancellationToken.None);
+        releaseCoordinator.SetResult();
+        await Task.WhenAll(initialization, shutdown);
+
+        coordinatorReturnedSuccess.Should().BeTrue();
+        (await initialization).Status.Should().Be(ApplicationStartupStatus.Cancelled);
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Shutdown_requested_while_coordinator_returns_failure_exposes_cancelled()
+    {
+        var coordinatorEntered = NewCompletionSource();
+        var releaseCoordinator = NewCompletionSource();
+        var coordinatorReturnedFailure = false;
+        var coordinator = new SequencedCoordinator(async _ =>
+        {
+            coordinatorEntered.SetResult();
+            await releaseCoordinator.Task;
+            coordinatorReturnedFailure = true;
+            return ControlledFailure();
+        });
+        var host = new FakeHost(_ => Task.CompletedTask, coordinator: coordinator);
+        var startup = new ApplicationHostStartup(() => host);
+
+        var initialization = startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None);
+        await coordinatorEntered.Task;
+        var shutdown = startup.ShutdownAsync(CancellationToken.None);
+        releaseCoordinator.SetResult();
+        await Task.WhenAll(initialization, shutdown);
+
+        coordinatorReturnedFailure.Should().BeTrue();
+        (await initialization).Status.Should().Be(ApplicationStartupStatus.Cancelled);
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task No_host_can_start_after_shutdown_requested()
+    {
+        var factoryCalls = 0;
+        var startup = new ApplicationHostStartup(() => { factoryCalls++; return FakeHost.Successful(); });
+        await startup.ShutdownAsync(CancellationToken.None);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)));
+
+        results.Should().OnlyContain(result => result.Status == ApplicationStartupStatus.Cancelled);
+        factoryCalls.Should().Be(0);
+        startup.Host.Should().BeNull();
+        startup.HostStarted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Concurrent_shutdown_calls_and_retry_remain_idempotent()
+    {
+        var retryEntered = NewCompletionSource();
+        var releaseRetry = NewCompletionSource();
+        var coordinator = new SequencedCoordinator(
+            _ => Task.FromResult(ControlledFailure()),
+            async _ => { retryEntered.SetResult(); await releaseRetry.Task; return ApplicationStartupResult.Success(false, false, null); });
+        var host = new FakeHost(_ => Task.CompletedTask, coordinator: coordinator);
+        var factoryCalls = 0;
+        var startup = new ApplicationHostStartup(() => { factoryCalls++; return host; });
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Succeeded.Should().BeFalse();
+
+        var retry = startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None);
+        await retryEntered.Task;
+        var shutdowns = Enumerable.Range(0, 4).Select(_ => startup.ShutdownAsync(CancellationToken.None)).ToArray();
+        releaseRetry.SetResult();
+        await Task.WhenAll(shutdowns.Append(retry));
+
+        factoryCalls.Should().Be(1);
+        host.StopCalls.Should().Be(1);
+        host.DisposeAsyncCalls.Should().Be(1);
+        (await startup.EnsureHostAndPersistenceReadyAsync(CancellationToken.None)).Status.Should().Be(ApplicationStartupStatus.Cancelled);
+        factoryCalls.Should().Be(1);
+    }
+
+    private static TaskCompletionSource NewCompletionSource() =>
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static ApplicationStartupResult ControlledFailure() =>
+        ApplicationStartupResult.Failure(ApplicationStartupFailureCode.MigrationFailed, "controlled failure", "test-diagnostic");
+
     private sealed class FakeHost : IHost, IAsyncDisposable
     {
         private readonly Func<CancellationToken, Task> start;
+        private readonly Exception? stopException;
         private readonly Exception? disposeException;
 
         public FakeHost(
             Func<CancellationToken, Task> start,
+            Exception? stopException = null,
             Exception? disposeException = null,
             IApplicationStartupCoordinator? coordinator = null,
             ILoggerProvider? loggerProvider = null)
         {
             this.start = start;
+            this.stopException = stopException;
             this.disposeException = disposeException;
             var services = new ServiceCollection();
             services.AddLogging(builder =>
@@ -215,6 +465,7 @@ public sealed class ApplicationHostStartupTests
 
         public IServiceProvider Services { get; }
         public int StartCalls { get; private set; }
+        public int StopCalls { get; private set; }
         public int DisposeAsyncCalls { get; private set; }
 
         public static FakeHost Successful() => new(_ => Task.CompletedTask);
@@ -225,7 +476,11 @@ public sealed class ApplicationHostStartupTests
             return start(cancellationToken);
         }
 
-        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task StopAsync(CancellationToken cancellationToken = default)
+        {
+            StopCalls++;
+            return stopException is null ? Task.CompletedTask : Task.FromException(stopException);
+        }
         public void Dispose() { }
         public ValueTask DisposeAsync()
         {
@@ -240,6 +495,21 @@ public sealed class ApplicationHostStartupTests
     {
         public Task<ApplicationStartupResult> InitializeAsync(CancellationToken cancellationToken) =>
             Task.FromResult(ApplicationStartupResult.Success(false, false, null));
+    }
+
+    private sealed class ControlledFailureCoordinator : IApplicationStartupCoordinator
+    {
+        public Task<ApplicationStartupResult> InitializeAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(ControlledFailure());
+    }
+
+    private sealed class SequencedCoordinator(params Func<CancellationToken, Task<ApplicationStartupResult>>[] operations)
+        : IApplicationStartupCoordinator
+    {
+        private readonly Queue<Func<CancellationToken, Task<ApplicationStartupResult>>> operations = new(operations);
+
+        public Task<ApplicationStartupResult> InitializeAsync(CancellationToken cancellationToken) =>
+            operations.Dequeue()(cancellationToken);
     }
 
     private sealed class ThrowingCoordinator(Exception exception) : IApplicationStartupCoordinator

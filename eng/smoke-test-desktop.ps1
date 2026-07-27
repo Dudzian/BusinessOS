@@ -5,6 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Engineering.psm1') -Force
 Set-Location $repoRoot
 $artifactRoot = Join-Path $repoRoot "artifacts/smoke-test/$($Scenario.ToLowerInvariant())"
 if (Test-Path $artifactRoot) { Remove-Item $artifactRoot -Recurse -Force }
@@ -41,14 +42,6 @@ function Invoke-NamedButton($Window, [string]$Name) {
     $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
 }
-function Wait-Until([scriptblock]$Condition, [string]$TimeoutMessage, [int]$TimeoutSeconds = 30) {
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    do {
-        if (& $Condition) { return }
-        Start-Sleep -Milliseconds 100
-    } while ((Get-Date) -lt $deadline)
-    throw $TimeoutMessage
-}
 $exe = Get-ChildItem -Path (Join-Path $repoRoot 'src/BusinessOS.Desktop/bin') -Recurse -Filter BusinessOS.Desktop.exe |
     Where-Object { $_.FullName -match [regex]::Escape($Configuration) } |
     Sort-Object FullName -Descending |
@@ -60,6 +53,11 @@ $primaryFailure = $null
 $cleanupFailure = $null
 $shutdownFailure = $null
 $closedByButton = $false
+$windowCountBeforeClose = 'NOT CAPTURED'
+$failureWindowCountBeforeClose = 'NOT CAPTURED'
+$mainWindowCountBeforeClose = 'NOT CAPTURED'
+$shutdownStarted = $false
+$closeMainWindow = 'NOT RUN'
 try {
     Add-Content -Path $diagnostics -Value "EXE: $($exe.FullName)"
     $process = Start-Process -FilePath $exe.FullName -PassThru
@@ -98,25 +96,32 @@ try {
             Remove-Item -LiteralPath $blocked -Force
             New-Item -ItemType Directory -Path $blocked | Out-Null
             Invoke-NamedButton $root 'Ponów próbę'
-            Wait-Until -TimeoutMessage 'Successful retry did not produce one ready BusinessOS main window.' -Condition {
+            Wait-BusinessOSCondition -TimeoutMessage 'Successful retry did not produce a stable ready BusinessOS main window.' -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 5 -Condition {
                 if ($process.HasExited) { return $false }
                 $windows = Get-ProcessWindows $process.Id
                 $mainWindows = @($windows | Where-Object { $_.Current.Name -eq 'BusinessOS' })
-                if ($mainWindows.Count -ne 1 -or $windows.Count -ne 1) { return $false }
-                if ($null -eq (Get-NamedElement $mainWindows[0] 'Baza danych jest gotowa')) { return $false }
+                $failureWindows = @($windows | Where-Object { $null -ne (Get-NamedElement $_ 'Ponów próbę') })
+                $ready = $mainWindows.Count -eq 1 -and $failureWindows.Count -eq 0 -and $windows.Count -eq 1
+                if ($ready) { $ready = $null -ne (Get-NamedElement $mainWindows[0] 'Baza danych jest gotowa') }
                 $databasePath = $env:BusinessOS__Persistence__DatabasePath
-                return (Test-Path $databasePath) -and (Get-Item $databasePath).Length -gt 0
+                if ($ready) { $ready = (Test-Path $databasePath) -and (Get-Item $databasePath).Length -gt 0 }
+                return $ready
             }
             $windows = Get-ProcessWindows $process.Id
             $mainWindows = @($windows | Where-Object { $_.Current.Name -eq 'BusinessOS' })
+            $failureWindows = @($windows | Where-Object { $null -ne (Get-NamedElement $_ 'Ponów próbę') })
+            $windowCountBeforeClose = $windows.Count
+            $failureWindowCountBeforeClose = $failureWindows.Count
+            $mainWindowCountBeforeClose = $mainWindows.Count
             if ($mainWindows.Count -ne 1 -or $windows.Count -ne 1) { throw 'Successful retry did not leave exactly one BusinessOS main window.' }
+            if ($failureWindows.Count -ne 0) { throw 'Successful retry retained a StartupFailureWindow.' }
             if ($null -eq (Get-NamedElement $mainWindows[0] 'Baza danych jest gotowa')) { throw 'Successful retry did not show database ready status.' }
             $databasePath = $env:BusinessOS__Persistence__DatabasePath
             if (-not (Test-Path $databasePath) -or (Get-Item $databasePath).Length -le 0) { throw 'Retry did not create the SQLite database.' }
         } else {
             foreach ($attempt in 1..2) {
                 Invoke-NamedButton $root 'Ponów próbę'
-                Wait-Until -TimeoutMessage "Retry $attempt did not settle on one enabled failure window." -Condition {
+                Wait-BusinessOSCondition -TimeoutMessage "Retry $attempt did not settle on one enabled failure window." -Condition {
                     if ($process.HasExited) { return $false }
                     $retryWindows = Get-ProcessWindows $process.Id
                     if ($retryWindows.Count -ne 1) { return $false }
@@ -169,7 +174,15 @@ finally {
             }
             else {
                 $shutdownMethod = 'CloseMainWindow'
+                $shutdownStarted = $true
+                $windowsBeforeClose = Get-ProcessWindows $process.Id
+                $mainWindowsBeforeClose = @($windowsBeforeClose | Where-Object { $_.Current.Name -eq 'BusinessOS' })
+                $failureWindowsBeforeClose = @($windowsBeforeClose | Where-Object { $null -ne (Get-NamedElement $_ 'Ponów próbę') })
+                $windowCountBeforeClose = $windowsBeforeClose.Count
+                $failureWindowCountBeforeClose = $failureWindowsBeforeClose.Count
+                $mainWindowCountBeforeClose = $mainWindowsBeforeClose.Count
                 $closeRequested = $process.CloseMainWindow()
+                $closeMainWindow = $closeRequested
                 Add-Content -Path $diagnostics -Value "CloseMainWindow: $closeRequested"
 
                 if (-not $closeRequested) {
@@ -177,9 +190,9 @@ finally {
                     Add-Content -Path $diagnostics -Value "ShutdownFailure: $shutdownFailure"
                 }
 
-                if (-not $process.WaitForExit(5000)) {
+                if (-not $process.WaitForExit(10000)) {
                     if ($null -eq $shutdownFailure) {
-                        $shutdownFailure = 'BusinessOS.Desktop did not terminate within 5 seconds after CloseMainWindow.'
+                        $shutdownFailure = 'BusinessOS.Desktop did not terminate within 10 seconds after CloseMainWindow.'
                         Add-Content -Path $diagnostics -Value "ShutdownFailure: $shutdownFailure"
                     }
 
@@ -205,6 +218,11 @@ finally {
             }
 
             Add-Content -Path $diagnostics -Value "ShutdownMethod: $shutdownMethod"
+            Add-Content -Path $diagnostics -Value "WindowCountBeforeClose: $windowCountBeforeClose"
+            Add-Content -Path $diagnostics -Value "FailureWindowCountBeforeClose: $failureWindowCountBeforeClose"
+            Add-Content -Path $diagnostics -Value "MainWindowCountBeforeClose: $mainWindowCountBeforeClose"
+            Add-Content -Path $diagnostics -Value "ShutdownStarted: $shutdownStarted"
+            Add-Content -Path $diagnostics -Value "CloseMainWindow: $closeMainWindow"
             Add-Content -Path $diagnostics -Value "Exited: $($process.HasExited)"
             Add-Content -Path $diagnostics -Value "ExitCode: $exitCode"
             Write-Host "BusinessOS.Desktop process closed by $shutdownMethod."

@@ -71,4 +71,25 @@ function Get-BusinessOSCrossPlatformFilterProjects {
   $json=Get-Content -LiteralPath $FilterPath -Raw | ConvertFrom-Json
   @($json.solution.projects | ForEach-Object { Join-Path $Root $_ })
 }
-Export-ModuleMember -Function Get-BusinessOSRepoRoot,Read-BusinessOSEnvironmentLock,Read-BusinessOSBootstrapLock,Invoke-CheckedCommand,Test-VersionAtLeast,Test-BusinessOSDotnetSdkCompatibility,Get-BusinessOSToolPath,Get-BusinessOSProjects,Get-BusinessOSCrossPlatformFilterProjects
+function Wait-BusinessOSCondition {
+  param(
+    [Parameter(Mandatory)][scriptblock]$Condition,
+    [Parameter(Mandatory)][string]$TimeoutMessage,
+    [ValidateRange(1,3600)][int]$TimeoutSeconds=30,
+    [ValidateRange(1,100)][int]$RequiredConsecutiveSuccesses=1,
+    [ValidateRange(1,5000)][int]$PollingMilliseconds=100
+  )
+  $consecutiveSuccesses=0
+  $deadline=(Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    if (& $Condition) {
+      $consecutiveSuccesses++
+      if ($consecutiveSuccesses -ge $RequiredConsecutiveSuccesses) { return }
+    } else {
+      $consecutiveSuccesses=0
+    }
+    Start-Sleep -Milliseconds $PollingMilliseconds
+  } while ((Get-Date) -lt $deadline)
+  throw $TimeoutMessage
+}
+Export-ModuleMember -Function Get-BusinessOSRepoRoot,Read-BusinessOSEnvironmentLock,Read-BusinessOSBootstrapLock,Invoke-CheckedCommand,Test-VersionAtLeast,Test-BusinessOSDotnetSdkCompatibility,Get-BusinessOSToolPath,Get-BusinessOSProjects,Get-BusinessOSCrossPlatformFilterProjects,Wait-BusinessOSCondition

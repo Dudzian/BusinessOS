@@ -1,0 +1,15 @@
+<Window
+    x:Class="BusinessOS.Desktop.StartupFailureWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="BusinessOS — błąd uruchamiania">
+    <StackPanel Padding="32" Spacing="16" AutomationProperties.Name="Nie udało się przygotować bazy danych">
+        <TextBlock Text="Nie udało się przygotować bazy danych" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock x:Name="UserMessageText" TextWrapping="Wrap" />
+        <TextBlock x:Name="DiagnosticIdText" AutomationProperties.Name="DiagnosticId" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Button x:Name="RetryButton" Content="Ponów próbę" Click="Retry_Click" />
+            <Button Content="Zamknij" Click="Close_Click" />
+        </StackPanel>
+    </StackPanel>
+</Window>

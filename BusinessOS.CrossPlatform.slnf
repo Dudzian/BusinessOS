@@ -3,6 +3,7 @@
     "path": "BusinessOS.sln",
     "projects": [
       "src/BuildingBlocks/BusinessOS.BuildingBlocks.Domain/BusinessOS.BuildingBlocks.Domain.csproj",
+      "src/BusinessOS.AppHost/BusinessOS.AppHost.csproj",
       "src/BuildingBlocks/BusinessOS.BuildingBlocks.Application/BusinessOS.BuildingBlocks.Application.csproj",
       "src/Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Domain/BusinessOS.Modules.BusinessProjects.Domain.csproj",
       "src/Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Application/BusinessOS.Modules.BusinessProjects.Application.csproj",

@@ -1,6 +1,12 @@
 # BusinessOS
 
-BusinessOS is a local-first Windows desktop application foundation. This repository currently contains **Block 1** only: a project structure, domain primitives and a minimal WinUI 3 shell.
+BusinessOS is a local-first Windows desktop application foundation.
+
+## Persistence blocks
+
+**Block 2A — persistence foundation** introduced the Companies SQLite model, generated EF migration, nullable foreign tax IDs, and Polish NIP checksum validation. **Block 2B1 — safe startup and pre-migration backup** adds a coordinated startup sequence: inspect migrations, create and verify an online backup when an existing database needs migration, migrate, and only then open the main window.
+
+On first startup no backup is created; an up-to-date database is opened without a backup or migration. Backup or migration failures lead to a safe retry/close window with a `DiagnosticId`, while technical exception details remain in logs. Block 2B1 deliberately does not include manual restore or Companies CRUD. See [persistence documentation](docs/persistence.md).
 
 ## Environment requirements
 
@@ -75,7 +81,6 @@ Deferred to later blocks:
 - audit log;
 - background jobs and durable queues;
 - Companies CRUD UI;
-- startup migration orchestration;
 - BusinessProjects persistence and UI;
 - Budgeting persistence and UI;
 - backup and restore;

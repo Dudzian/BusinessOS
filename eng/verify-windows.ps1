@@ -11,4 +11,6 @@ Invoke-CheckedCommand dotnet @('test','BusinessOS.sln','-c','Release','--no-buil
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'verify-test-results.ps1'),'-ResultsDirectory',$art) $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $Root 'tests/environment/Environment.Tests.ps1')) $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'check-vulnerable-packages.ps1'),'-ProjectOrSolution','BusinessOS.sln') $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release') $Root
+Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','Ready') $Root
+Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','PersistenceFailure') $Root
+Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','PersistenceFailureThenReady') $Root

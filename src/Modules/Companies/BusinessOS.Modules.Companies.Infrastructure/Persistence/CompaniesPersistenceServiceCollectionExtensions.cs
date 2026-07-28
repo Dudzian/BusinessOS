@@ -21,6 +21,13 @@ public static class CompaniesPersistenceServiceCollectionExtensions
         services.AddSingleton<ICompaniesDatabaseInitializer, CompaniesDatabaseInitializer>();
         services.AddSingleton<ICompaniesMigrationInspector, CompaniesMigrationInspector>();
         services.AddSingleton<ICompaniesDatabaseBackupService, CompaniesDatabaseBackupService>();
+        services.AddSingleton<CompaniesBackupValidator>();
+        services.AddSingleton<ICompaniesBackupFileOperations, CompaniesBackupFileOperations>();
+        services.AddSingleton<ICompaniesBackupCatalog, CompaniesBackupCatalog>();
+        services.AddSingleton<ICompaniesRestoreFileOperations, CompaniesRestoreFileOperations>();
+        services.AddSingleton<ICompaniesDatabaseMaintenance, CompaniesDatabaseMaintenance>();
+        services.AddSingleton<ICompaniesRestoreStager, CompaniesRestoreStager>();
+        services.AddSingleton<ICompaniesDatabaseRestoreService, CompaniesDatabaseRestoreService>();
         return services;
     }
 }

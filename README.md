@@ -6,7 +6,7 @@ BusinessOS is a local-first Windows desktop application foundation.
 
 **Block 2A — persistence foundation** introduced the Companies SQLite model, generated EF migration, nullable foreign tax IDs, and Polish NIP checksum validation. **Block 2B1 — safe startup and pre-migration backup** adds a coordinated startup sequence: inspect migrations, create and verify an online backup when an existing database needs migration, migrate, and only then open the main window.
 
-On first startup no backup is created; an up-to-date database is opened without a backup or migration. Backup or migration failures lead to a safe retry/close window with a `DiagnosticId`, while technical exception details remain in logs. Block 2B1 deliberately does not include manual restore or Companies CRUD. See [persistence documentation](docs/persistence.md).
+On first startup no backup is created; an up-to-date database is opened without a backup or migration. Backup or migration failures lead to a safe retry/close window with a `DiagnosticId`, while technical exception details remain in logs. Block 2B2a adds the infrastructure-only safe Companies restore engine and backup catalog; restore UI remains deferred to Block 2B2b. See [persistence documentation](docs/persistence.md).
 
 ## Environment requirements
 
@@ -83,7 +83,7 @@ Deferred to later blocks:
 - Companies CRUD UI;
 - BusinessProjects persistence and UI;
 - Budgeting persistence and UI;
-- backup and restore;
+- restore UI (the safe infrastructure restore engine is available);
 - MSIX installer;
 - GymOS compatibility and financial engine.
 

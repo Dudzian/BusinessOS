@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
@@ -33,8 +31,7 @@ public sealed partial class CompaniesDatabaseBackupService(
         cancellationToken.ThrowIfCancellationRequested();
         var directory = options.GetNormalizedBackupDirectory();
         Directory.CreateDirectory(directory);
-        var timestamp = timeProvider.GetUtcNow().UtcDateTime.ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
-        var finalPath = Path.Combine(directory, $"businessos-companies-{timestamp}-{Guid.NewGuid():N}.db");
+        var finalPath = Path.Combine(directory, CompaniesBackupFileName.Create(timeProvider.GetUtcNow(), Guid.NewGuid()));
         var temporaryPath = finalPath + ".tmp";
 
         try
@@ -53,8 +50,14 @@ public sealed partial class CompaniesDatabaseBackupService(
                 await check.OpenAsync(cancellationToken).ConfigureAwait(false);
                 await using var command = check.CreateCommand();
                 command.CommandText = "PRAGMA quick_check;";
-                var result = (string?)await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(result, "ok", StringComparison.Ordinal))
+                var results = new List<string>();
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    results.Add(reader.GetString(0));
+                }
+
+                if (results.Count != 1 || !string.Equals(results[0], "ok", StringComparison.Ordinal))
                 {
                     logger.LogError("Companies backup failed SQLite quick_check.");
                     return CompaniesBackupResult.Failure(CompaniesBackupFailureCode.IntegrityCheckFailed);
@@ -88,7 +91,7 @@ public sealed partial class CompaniesDatabaseBackupService(
             var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
             var currentFullPath = Path.GetFullPath(currentPath);
             var otherBackups = Directory.EnumerateFiles(options.GetNormalizedBackupDirectory(), "businessos-companies-*.db")
-                .Where(path => BackupNamePattern().IsMatch(Path.GetFileName(path)))
+                .Where(path => CompaniesBackupFileName.TryParse(Path.GetFileName(path), out _))
                 .Select(Path.GetFullPath)
                 .Where(path => !comparer.Equals(path, currentFullPath))
                 .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
@@ -135,7 +138,4 @@ public sealed partial class CompaniesDatabaseBackupService(
             Mode = mode,
             Pooling = false,
         }.ToString();
-
-    [GeneratedRegex(@"^businessos-companies-\d{8}T\d{9}Z-[0-9a-f]{32}\.db$", RegexOptions.CultureInvariant)]
-    private static partial Regex BackupNamePattern();
 }

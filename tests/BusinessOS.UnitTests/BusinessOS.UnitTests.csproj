@@ -10,6 +10,7 @@
     <ProjectReference Include="../../src/BuildingBlocks/BusinessOS.BuildingBlocks.Domain/BusinessOS.BuildingBlocks.Domain.csproj" />
     <ProjectReference Include="../../src/BusinessOS.AppHost/BusinessOS.AppHost.csproj" />
     <ProjectReference Include="../../src/Modules/Companies/BusinessOS.Modules.Companies.Domain/BusinessOS.Modules.Companies.Domain.csproj" />
+    <ProjectReference Include="../../src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj" />
     <ProjectReference Include="../../src/Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Domain/BusinessOS.Modules.BusinessProjects.Domain.csproj" />
   </ItemGroup>
 </Project>

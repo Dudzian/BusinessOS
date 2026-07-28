@@ -58,6 +58,14 @@ $failureWindowCountBeforeClose = 'NOT CAPTURED'
 $mainWindowCountBeforeClose = 'NOT CAPTURED'
 $shutdownStarted = $false
 $closeMainWindow = 'NOT RUN'
+$processMainWindowHandleBeforeClose = 'NOT CAPTURED'
+$processMainWindowTitleBeforeClose = 'NOT CAPTURED'
+$targetWindowNativeHandle = 'NOT CAPTURED'
+$targetWindowTitle = 'NOT CAPTURED'
+$targetWindowAutomationId = 'NOT CAPTURED'
+$targetWindowControlType = 'NOT CAPTURED'
+$processAndTargetHandleMatch = 'NOT CAPTURED'
+$closeDispatchMethod = 'NOT RUN'
 try {
     Add-Content -Path $diagnostics -Value "EXE: $($exe.FullName)"
     $process = Start-Process -FilePath $exe.FullName -PassThru
@@ -181,13 +189,35 @@ finally {
                 $windowCountBeforeClose = $windowsBeforeClose.Count
                 $failureWindowCountBeforeClose = $failureWindowsBeforeClose.Count
                 $mainWindowCountBeforeClose = $mainWindowsBeforeClose.Count
-                $closeRequested = $process.CloseMainWindow()
-                $closeMainWindow = $closeRequested
-                Add-Content -Path $diagnostics -Value "CloseMainWindow: $closeRequested"
 
-                if (-not $closeRequested) {
-                    $shutdownFailure = 'CloseMainWindow did not accept the shutdown request.'
+                if ($windowsBeforeClose.Count -ne 1 -or $mainWindowsBeforeClose.Count -ne 1 -or $failureWindowsBeforeClose.Count -ne 0) {
+                    $shutdownFailure = "Cannot close the BusinessOS main window: expected one main window and no failure window, but found $($windowsBeforeClose.Count) total, $($mainWindowsBeforeClose.Count) main, and $($failureWindowsBeforeClose.Count) failure windows."
                     Add-Content -Path $diagnostics -Value "ShutdownFailure: $shutdownFailure"
+                }
+                else {
+                    $targetWindow = $mainWindowsBeforeClose[0]
+                    $process.Refresh()
+                    $processMainWindowHandleBeforeClose = $process.MainWindowHandle
+                    $processMainWindowTitleBeforeClose = $process.MainWindowTitle
+                    $targetWindowNativeHandle = $targetWindow.Current.NativeWindowHandle
+                    $targetWindowTitle = $targetWindow.Current.Name
+                    $targetWindowAutomationId = $targetWindow.Current.AutomationId
+                    $targetWindowControlType = $targetWindow.Current.ControlType.ProgrammaticName
+                    $processAndTargetHandleMatch = $processMainWindowHandleBeforeClose -eq $targetWindowNativeHandle
+
+                    try {
+                        $windowPattern = $targetWindow.GetCurrentPattern(
+                            [System.Windows.Automation.WindowPattern]::Pattern
+                        )
+                        $closeDispatchMethod = 'UIAutomation.WindowPattern.Close'
+                        $windowPattern.Close()
+                        $closeMainWindow = $true
+                        Add-Content -Path $diagnostics -Value 'CloseMainWindow: True'
+                    }
+                    catch {
+                        $shutdownFailure = "The target BusinessOS window does not support WindowPattern.Close: $($_.Exception.Message)"
+                        Add-Content -Path $diagnostics -Value "ShutdownFailure: $shutdownFailure"
+                    }
                 }
 
                 if (-not $process.WaitForExit(10000)) {
@@ -223,6 +253,14 @@ finally {
             Add-Content -Path $diagnostics -Value "MainWindowCountBeforeClose: $mainWindowCountBeforeClose"
             Add-Content -Path $diagnostics -Value "ShutdownStarted: $shutdownStarted"
             Add-Content -Path $diagnostics -Value "CloseMainWindow: $closeMainWindow"
+            Add-Content -Path $diagnostics -Value "ProcessMainWindowHandleBeforeClose: $processMainWindowHandleBeforeClose"
+            Add-Content -Path $diagnostics -Value "ProcessMainWindowTitleBeforeClose: $processMainWindowTitleBeforeClose"
+            Add-Content -Path $diagnostics -Value "TargetWindowNativeHandle: $targetWindowNativeHandle"
+            Add-Content -Path $diagnostics -Value "TargetWindowTitle: $targetWindowTitle"
+            Add-Content -Path $diagnostics -Value "TargetWindowAutomationId: $targetWindowAutomationId"
+            Add-Content -Path $diagnostics -Value "TargetWindowControlType: $targetWindowControlType"
+            Add-Content -Path $diagnostics -Value "ProcessAndTargetHandleMatch: $processAndTargetHandleMatch"
+            Add-Content -Path $diagnostics -Value "CloseDispatchMethod: $closeDispatchMethod"
             Add-Content -Path $diagnostics -Value "Exited: $($process.HasExited)"
             Add-Content -Path $diagnostics -Value "ExitCode: $exitCode"
             Write-Host "BusinessOS.Desktop process closed by $shutdownMethod."

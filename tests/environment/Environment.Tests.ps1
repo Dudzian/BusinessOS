@@ -6,6 +6,40 @@ Import-Module (Join-Path $RepoRoot 'eng/BusinessOS.Provisioning.psm1') -Force
 $log=Join-Path $RepoRoot '.cache/environment-tests.log'; New-Item -ItemType Directory -Force (Split-Path $log)|Out-Null; ''|Set-Content -LiteralPath $log
 $script:Failures=0
 function Assert($Name,[scriptblock]$Body){try{& $Body; "PASS $Name"|Tee-Object -FilePath $log -Append}catch{$script:Failures++; "FAIL $Name :: $($_.Exception.Message)"|Tee-Object -FilePath $log -Append; Write-Error $_}}
+Assert 'desktop smoke closes the selected AutomationElement through WindowPattern' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+
+    $assignments = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))
+    $targetAssignment = @($assignments | Where-Object {
+        $_.Left.Extent.Text -eq '$targetWindow' -and $_.Right.Extent.Text -eq '$mainWindowsBeforeClose[0]'
+    })
+    if ($targetAssignment.Count -ne 1) { throw 'desktop smoke does not select exactly one target window from the validated main-window collection' }
+
+    $invocations = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] }, $true))
+    if (-not ($invocations | Where-Object {
+        $_.Expression.Extent.Text -eq '$targetWindow' -and $_.Member.Extent.Text -eq 'GetCurrentPattern' -and
+        $_.Arguments.Count -eq 1 -and $_.Arguments[0].Extent.Text -match 'WindowPattern\]::Pattern'
+    })) { throw 'desktop smoke does not obtain WindowPattern from the selected target window' }
+    if (-not ($invocations | Where-Object {
+        $_.Expression.Extent.Text -eq '$windowPattern' -and $_.Member.Extent.Text -eq 'Close'
+    })) { throw 'desktop smoke does not close the WindowPattern obtained for the target window' }
+    if ($invocations | Where-Object {
+        $_.Expression.Extent.Text -eq '$process' -and $_.Member.Extent.Text -eq 'CloseMainWindow'
+    }) { throw 'desktop smoke still dispatches shutdown through Process.CloseMainWindow' }
+
+    $source = $ast.Extent.Text
+    foreach ($field in 'ProcessMainWindowHandleBeforeClose','ProcessMainWindowTitleBeforeClose','TargetWindowNativeHandle','TargetWindowTitle','TargetWindowAutomationId','TargetWindowControlType','ProcessAndTargetHandleMatch','CloseDispatchMethod') {
+        if ($source -notmatch [regex]::Escape("$field`:")) { throw "desktop smoke does not write diagnostic field $field" }
+    }
+    if ($source -notmatch "CloseDispatchMethod\s*=\s*'UIAutomation\.WindowPattern\.Close'") { throw 'desktop smoke does not identify the WindowPattern close dispatch method' }
+    if ($source -notmatch 'ShutdownMethod: \$shutdownMethod' -or $source -notmatch 'SmokeResult: FAIL' -or $source -notmatch '\$process\.Kill\(\$true\)') {
+        throw 'desktop smoke does not retain Kill solely on the diagnosed failure path'
+    }
+}
 Assert 'Wait-BusinessOSCondition requires consecutive successes' {
     $state=[pscustomobject]@{ Calls=0; Values=@($false,$true,$true,$false,$true,$true,$true) }
     Wait-BusinessOSCondition -TimeoutMessage 'sequence timed out' -TimeoutSeconds 1 -PollingMilliseconds 1 -RequiredConsecutiveSuccesses 3 -Condition {

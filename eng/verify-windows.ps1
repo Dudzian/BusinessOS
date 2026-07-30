@@ -7,6 +7,7 @@ Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'doct
 Invoke-CheckedCommand dotnet @('restore','BusinessOS.sln') $Root
 Invoke-CheckedCommand dotnet @('format','BusinessOS.sln','--verify-no-changes') $Root
 Invoke-CheckedCommand dotnet @('build','BusinessOS.sln','-c','Release','--no-restore') $Root
+Invoke-CheckedCommand dotnet @('build','tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj','-c','Release') $Root
 Invoke-CheckedCommand dotnet @('test','BusinessOS.sln','-c','Release','--no-build','--logger','trx','--results-directory',$art) $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'verify-test-results.ps1'),'-ResultsDirectory',$art) $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $Root 'tests/environment/Environment.Tests.ps1')) $Root
@@ -14,3 +15,5 @@ Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'chec
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','Ready') $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','PersistenceFailure') $Root
 Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','PersistenceFailureThenReady') $Root
+Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','RecoveryFromReady') $Root
+Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'smoke-test-desktop.ps1'),'-Configuration','Release','-Scenario','RecoveryFromStartupFailure') $Root

@@ -8,9 +8,11 @@ namespace BusinessOS.Desktop;
 
 public partial class App : Application
 {
+    private enum RecoveryOrigin { MainWindow, StartupFailure }
     private readonly ApplicationHostStartup hostStartup;
     private Window? window;
     private int shutdownStarted;
+    private ApplicationStartupResult? lastFailure;
 
     public App()
     {
@@ -49,8 +51,7 @@ public partial class App : Application
         var activeHost = hostStartup.Host;
         if (activeHost is null || !hostStartup.HostStarted) return;
 
-        var previous = window;
-        var mainWindow = new MainWindow(ActivatorUtilities.CreateInstance<MainViewModel>(activeHost.Services));
+        var mainWindow = new MainWindow(ActivatorUtilities.CreateInstance<MainViewModel>(activeHost.Services), () => ShowRecovery(RecoveryOrigin.MainWindow));
         if (Volatile.Read(ref shutdownStarted) != 0 ||
             !ReferenceEquals(activeHost, hostStartup.Host) ||
             !hostStartup.HostStarted)
@@ -59,23 +60,60 @@ public partial class App : Application
             return;
         }
 
-        if (previous is not null) previous.Closed -= OnWindowClosed;
-        window = mainWindow;
-        mainWindow.Closed += OnWindowClosed;
-        mainWindow.Activate();
-        previous?.Close();
+        TransitionToWindow(mainWindow);
     }
 
     private void ShowFailure(ApplicationStartupResult result)
     {
-        window = new StartupFailureWindow(
+        lastFailure = result;
+        var failureWindow = new StartupFailureWindow(
             result,
             EnsureHostAndPersistenceReadyAsync,
             ShowMainWindow,
             ShutdownAndExitAsync,
+            CanRecover,
+            () => ShowRecovery(RecoveryOrigin.StartupFailure),
             exception => hostStartup.ReportUnexpectedFailure("Retry", "Nie udało się ponowić przygotowania bazy danych.", exception));
-        window.Closed += OnWindowClosed;
-        window.Activate();
+        TransitionToWindow(failureWindow);
+    }
+
+    private bool CanRecover() =>
+        Volatile.Read(ref shutdownStarted) == 0 && hostStartup.Host is not null && hostStartup.HostStarted &&
+        hostStartup.Host.Services.GetService<ICompaniesRecoveryWorkflow>() is not null;
+
+    private void ShowRecovery(RecoveryOrigin origin)
+    {
+        if (Volatile.Read(ref shutdownStarted) != 0 || hostStartup.Host is null || !hostStartup.HostStarted) return;
+        var workflow = hostStartup.Host.Services.GetService<ICompaniesRecoveryWorkflow>();
+        if (workflow is null) return;
+        var recovery = new DatabaseRecoveryWindow(
+            workflow,
+            () => { if (origin == RecoveryOrigin.MainWindow) ShowMainWindow(); else if (lastFailure is not null) ShowFailure(lastFailure); },
+            ShutdownAndExitAsync,
+            EnsureHostAndPersistenceReadyAsync,
+            CompleteRecovery);
+        TransitionToWindow(recovery);
+    }
+
+    private void CompleteRecovery(ApplicationStartupResult result)
+    {
+        if (result.Succeeded) ShowMainWindow(); else ShowFailure(result);
+    }
+
+    private void TransitionToWindow(Window next)
+    {
+        if (Volatile.Read(ref shutdownStarted) != 0) { next.Close(); return; }
+        var previous = window;
+        if (previous is DatabaseRecoveryWindow recoveryWindow && !recoveryWindow.AuthorizeInternalClose())
+        {
+            next.Close();
+            return;
+        }
+        if (previous is not null) previous.Closed -= OnWindowClosed;
+        window = next;
+        next.Closed += OnWindowClosed;
+        next.Activate();
+        previous?.Close();
     }
 
     private async void OnWindowClosed(object sender, WindowEventArgs args)

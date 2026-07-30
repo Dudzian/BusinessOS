@@ -4,7 +4,11 @@ Set-Location $repoRoot
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw 'Missing dotnet CLI; cannot verify solution membership.'
 }
-$projectsOnDisk = Get-ChildItem -Path src, tests -Recurse -Filter *.csproj | ForEach-Object { $_.FullName.Substring($repoRoot.Path.Length + 1).Replace('\', '/') } | Sort-Object
+$engineeringOnlyProjects = @('tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj')
+$projectsOnDisk = Get-ChildItem -Path src, tests -Recurse -Filter *.csproj |
+    ForEach-Object { $_.FullName.Substring($repoRoot.Path.Length + 1).Replace('\', '/') } |
+    Where-Object { $_ -notin $engineeringOnlyProjects } |
+    Sort-Object
 $solutionOutput = dotnet sln BusinessOS.sln list
 if ($LASTEXITCODE -ne 0) { throw "dotnet sln list failed with exit code $LASTEXITCODE." }
 $solutionProjects = $solutionOutput | Select-Object -Skip 2 | ForEach-Object { $_.Trim().Replace('\', '/') } | Where-Object { $_ } | Sort-Object

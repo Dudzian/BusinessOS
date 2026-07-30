@@ -1,4 +1,4 @@
-param([ValidateSet('CrossPlatform','Windows')][string]$Mode='CrossPlatform',[switch]$SkipEnvironmentTests)
+param([ValidateSet('CrossPlatform','Windows','Audit')][string]$Mode='CrossPlatform',[switch]$SkipEnvironmentTests)
 $ErrorActionPreference='Continue'; Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Engineering.psm1') -Force
 $Root=Get-BusinessOSRepoRoot; $Ready=$true; $Rows=@(); $Lock=$null
 function Write-DoctorReport {
@@ -51,11 +51,20 @@ Add-Check 'ripgrep' 'optional' ($(if(Get-Command rg -ErrorAction SilentlyContinu
 foreach($f in 'setup-environment.ps1','setup-environment.sh','activate-environment.ps1','activate-environment.sh','verify-cross-platform.ps1','verify-windows.ps1','smoke-test-desktop.ps1'){Add-Check "eng/$f" 'present' (Test-Path (Join-Path $PSScriptRoot $f)) (Test-Path (Join-Path $PSScriptRoot $f))}
 $tracked=@(& git ls-files 2>$null); $bad=$tracked|Where-Object{$_ -match '^(\.tools|\.cache)/|\.(pfx|pem|key|zip|tar|gz)$|secret|token'}; Add-Check 'Tracked secrets/binaries' 'none' ($(if($bad){$bad -join ','}else{'none'})) (-not $bad)
 if(-not $SkipEnvironmentTests){try{& $pw -NoProfile -File (Join-Path $Root 'tests/environment/Environment.Tests.ps1') -Quick; Add-Check 'Environment self-tests' 'pass' 'passed' ($LASTEXITCODE -eq 0)}catch{Add-Check 'Environment self-tests' 'pass' $_.Exception.Message $false}}
+if($Mode -eq 'Audit'){
+ $gh=Get-Command gh -ErrorAction SilentlyContinue;$ghVersion=if($gh){try{((& gh --version)[0]-split ' ')[2]}catch{'error'}}else{'missing'}
+ Add-Check 'GitHub CLI available' $Lock.githubCli.version $ghVersion ($ghVersion -eq $Lock.githubCli.version)
+ $authenticated=if($gh){& gh auth status *> $null;$LASTEXITCODE -eq 0}else{$false};Add-Check 'GitHub CLI authenticated' 'optional' $authenticated $true $true
+ $public=$false;try{Invoke-RestMethod -Uri 'https://api.github.com/repos/Dudzian/BusinessOS' -Headers @{'User-Agent'='BusinessOS-audit-doctor'}|Out-Null;$public=$true}catch{};Add-Check 'GitHub REST public access' 'read-only available' $public $public
+ Add-Check 'GitHub REST authenticated access' 'optional' ([bool]($env:GITHUB_TOKEN-or$env:GH_TOKEN)) $true $true
+ Add-Check 'Canonical audit path' 'eng/audit-github-ci.ps1' (Test-Path (Join-Path $PSScriptRoot 'audit-github-ci.ps1')) (Test-Path (Join-Path $PSScriptRoot 'audit-github-ci.ps1'))
+ Add-Check 'curl or Invoke-RestMethod' 'available' 'Invoke-RestMethod' ([bool](Get-Command Invoke-RestMethod))
+}
 if($Mode -eq 'Windows'){
  Add-Check 'Windows OS' 'Windows' $IsWindows $IsWindows; Add-Check 'Windows architecture' 'x64' ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture) ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'X64')
  $sdkRoot='C:\Program Files (x86)\Windows Kits\10\Lib'; $sdks=if(Test-Path $sdkRoot){@(Get-ChildItem $sdkRoot -Directory|% Name)}else{@()}; Add-Check 'Windows SDK' ">= $($Lock.windowsSdkMinimum)" ($sdks -join ',') ($IsWindows -and ($sdks|?{[version]($_ -replace '[^0-9\.]','') -ge [version]$Lock.windowsSdkMinimum}))
  foreach($asm in 'UIAutomationClient','UIAutomationTypes'){try{Add-Type -AssemblyName $asm -ErrorAction Stop; $ok=$true}catch{$ok=$false}; Add-Check $asm 'loadable' $ok $ok}
  Add-Check 'Interactive desktop' 'true' ([Environment]::UserInteractive) ([Environment]::UserInteractive)
  $desktop=Join-Path $Root 'src/BusinessOS.Desktop/BusinessOS.Desktop.csproj'; $dx=if(Test-Path $desktop){Get-Content $desktop -Raw}else{''}; Add-Check 'WinUI Desktop project' 'present' (Test-Path $desktop) (Test-Path $desktop); Add-Check 'Windows App SDK reference' 'present' ($dx -match 'Microsoft.WindowsAppSDK') ($dx -match 'Microsoft.WindowsAppSDK')
-} else { Add-Check 'WinUI gate' 'Windows verification' 'SKIPPED — requires Windows verification' $false $true }
+} elseif($Mode -ne 'Audit') { Add-Check 'WinUI gate' 'Windows verification' 'SKIPPED — requires Windows verification' $false $true }
 Write-DoctorReport -Rows $Rows -Ready $Ready; if(-not $Ready){exit 1}

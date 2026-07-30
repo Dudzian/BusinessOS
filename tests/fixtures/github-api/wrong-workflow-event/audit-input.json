@@ -1,0 +1,74 @@
+{
+  "remoteHeadSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "remoteHeadTreeSha": "937621689ba91808b8eaa275934385f0164300e5",
+  "remoteMergeSha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "remoteMergeTreeSha": "937621689ba91808b8eaa275934385f0164300e5",
+  "runAttempt": 1,
+  "jobs": [
+    {
+      "name": "cross-platform",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows",
+      "conclusion": "success"
+    },
+    {
+      "name": "required-gates",
+      "conclusion": "success"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "businessos-cross-platform-100-1",
+      "path": "cross-platform",
+      "expired": false
+    },
+    {
+      "name": "businessos-windows-100-1",
+      "path": "windows",
+      "expired": false
+    }
+  ],
+  "runs": [
+    {
+      "id": 100,
+      "name": "ci",
+      "head_sha": "dddddddddddddddddddddddddddddddddddddddd",
+      "event": "push",
+      "status": "completed",
+      "created_at": "2026-01-02T00:00:00Z",
+      "run_number": 2,
+      "run_attempt": 1,
+      "head_branch": "x",
+      "updated_at": "2026-01-02T00:01:00Z",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "cross-platform",
+          "conclusion": "success"
+        },
+        {
+          "name": "windows",
+          "conclusion": "success"
+        },
+        {
+          "name": "required-gates",
+          "conclusion": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "businessos-cross-platform-100-1",
+          "path": "cross-platform",
+          "expired": false
+        },
+        {
+          "name": "businessos-windows-100-1",
+          "path": "windows",
+          "expired": false
+        }
+      ]
+    }
+  ]
+}

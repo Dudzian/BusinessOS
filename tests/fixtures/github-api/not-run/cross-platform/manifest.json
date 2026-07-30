@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-01-01T00:00:00Z",
+  "files": [
+    {
+      "relativePath": "summary.json",
+      "sizeBytes": 1679,
+      "sha256": "2d8474af0a030886423856dee35bb93f4b57c23267acf9888bab28a6a2f5ca1c",
+      "contentType": "application/json"
+    }
+  ]
+}

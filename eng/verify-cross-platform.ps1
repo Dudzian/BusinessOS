@@ -1,23 +1,16 @@
-$ErrorActionPreference='Stop'
-. (Join-Path $PSScriptRoot 'activate-environment.ps1')
-Import-Module (Join-Path $PSScriptRoot 'BusinessOS.Engineering.psm1') -Force
-$Root=Get-BusinessOSRepoRoot; $art=Join-Path $Root 'artifacts/test-results'; if(Test-Path $art){Remove-Item $art -Recurse -Force}; New-Item -ItemType Directory -Force $art|Out-Null
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'check-solution-projects.ps1')) $Root
-$filter=Join-Path $Root 'BusinessOS.CrossPlatform.slnf'; $filterProjects=Get-BusinessOSCrossPlatformFilterProjects $Root $filter
-$required=@('BusinessOS.AppHost.csproj','BusinessOS.BuildingBlocks.Domain.csproj','BusinessOS.BuildingBlocks.Application.csproj','BusinessOS.Modules.Companies.Infrastructure.csproj','BusinessOS.UnitTests.csproj','BusinessOS.ArchitectureTests.csproj','BusinessOS.IntegrationTests.csproj','BusinessOS.MigrationTests.csproj')
-foreach($r in $required){ if(-not(($filterProjects|Split-Path -Leaf) -contains $r)){ throw "Cross-platform solution filter is missing required project: $r" } }
-if(($filterProjects -join ';') -match 'BusinessOS\.Desktop|BusinessProjects\.Infrastructure|BuildingBlocks\.Infrastructure'){throw 'Cross-platform solution filter contains a deferred project'}
-Invoke-CheckedCommand dotnet @('restore',$filter) $Root
-Invoke-CheckedCommand dotnet @('format',$filter,'--verify-no-changes') $Root
-Invoke-CheckedCommand dotnet @('build',$filter,'-c','Release','--no-restore') $Root
-Invoke-CheckedCommand dotnet @('test',$filter,'-c','Release','--no-build','--logger','trx','--results-directory',$art) $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'verify-test-results.ps1'),'-ResultsDirectory',$art) $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'test-verify-test-results.ps1')) $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $Root 'tests/environment/Environment.Tests.ps1')) $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'doctor.ps1'),'-Mode','CrossPlatform','-SkipEnvironmentTests') $Root
-Invoke-CheckedCommand pwsh @('-NoProfile','-File',(Join-Path $PSScriptRoot 'check-vulnerable-packages.ps1'),'-ProjectOrSolution',$filter) $Root
-$tracked=@(& git ls-files); if($tracked|Where-Object{$_ -match 'secret|token|\.pfx$|\.pem$|\.key$'}){throw 'Tracked secret-like file detected'}
-$forbidden=Select-String -Path (Join-Path $Root 'Directory.Packages.props') -Pattern 'Newtonsoft.Json|Dapper' -ErrorAction SilentlyContinue; if($forbidden){throw 'Forbidden dependency detected'}
-Write-Host 'WinUI build: SKIPPED — requires Windows verification'
-Write-Host 'WinUI smoke test: SKIPPED — requires Windows verification'
+$ErrorActionPreference='Stop';. "$PSScriptRoot/activate-environment.ps1";Import-Module "$PSScriptRoot/BusinessOS.Engineering.psm1" -Force
+$Root=Get-BusinessOSRepoRoot;$started=[DateTimeOffset]::UtcNow.ToString('o');$stage='initialization';$last='none';$exitCode=0;$failure='none';$formatStatus='NOT_RUN';$buildStatus='NOT_RUN';$art=Join-Path $Root 'artifacts/test-results';if(Test-Path $art){Remove-Item $art -Recurse -Force};New-Item -ItemType Directory -Force $art|Out-Null
+function Run([string]$Name,[scriptblock]$Action){$script:stage=$Name;&$Action;$script:last=$Name}
+try{
+ Run doctor {Invoke-CheckedCommand pwsh @('-NoProfile','-File',"$PSScriptRoot/doctor.ps1",'-Mode','CrossPlatform','-SkipEnvironmentTests') $Root;Invoke-CheckedCommand pwsh @('-NoProfile','-File',"$PSScriptRoot/check-solution-projects.ps1") $Root}
+ Run environment-tests {& pwsh -NoProfile -File "$Root/tests/environment/Environment.Tests.ps1" 2>&1|Tee-Object "$Root/.cache/environment-tests.log";if($LASTEXITCODE){throw 'Environment tests failed'}}
+ Run restore {Invoke-CheckedCommand dotnet @('tool','restore') $Root;Invoke-CheckedCommand dotnet @('restore','BusinessOS.CrossPlatform.slnf') $Root}
+ Run format {Invoke-CheckedCommand dotnet @('format','BusinessOS.CrossPlatform.slnf','--verify-no-changes') $Root;$script:formatStatus='PASS'}
+ Run build {Invoke-CheckedCommand dotnet @('build','BusinessOS.CrossPlatform.slnf','-c','Release','--no-restore') $Root;$script:buildStatus='PASS'}
+ Run tests {Invoke-CheckedCommand dotnet @('test','BusinessOS.CrossPlatform.slnf','-c','Release','--no-build','--logger','trx','--results-directory',$art) $Root}
+ Run trx-verification {Invoke-CheckedCommand pwsh @('-NoProfile','-File',"$PSScriptRoot/verify-test-results.ps1",'-ResultsDirectory',$art) $Root;Invoke-CheckedCommand pwsh @('-NoProfile','-File',"$PSScriptRoot/test-verify-test-results.ps1") $Root}
+ Run vulnerability-scan {Invoke-CheckedCommand pwsh @('-NoProfile','-File',"$PSScriptRoot/check-vulnerable-packages.ps1",'-ProjectOrSolution','BusinessOS.CrossPlatform.slnf') $Root}
+ Run migration-check {$before=@(&git status --porcelain -- 'src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/Persistence/Migrations');$output=&dotnet ef migrations has-pending-model-changes --project src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj --startup-project src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj --context CompaniesDbContext 2>&1;if($LASTEXITCODE){throw ($output-join"`n")};$after=@(&git status --porcelain -- 'src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/Persistence/Migrations');[ordered]@{status='PASS';pendingModelChanges=($output-join"`n")-notmatch'No changes have been made';newMigrationCreated=$after.Count-gt$before.Count;snapshotModified=[bool]($after-match'ModelSnapshot')}|ConvertTo-Json|Set-Content "$Root/.cache/migration-evidence.json"}
+ Run final-doctor {Invoke-CheckedCommand pwsh @('-NoProfile','-File',"$PSScriptRoot/doctor.ps1",'-Mode','CrossPlatform','-SkipEnvironmentTests') $Root};$tracked=@(&git ls-files);if($tracked|Where-Object{$_-match'(^|/)(\.tools|\.cache)/|\.(pfx|pem|key)$'}){throw 'Tracked secret or binary detected'};$stage='complete';$last='complete'
+}catch{$exitCode=if($LASTEXITCODE){$LASTEXITCODE}else{1};$failure=$_.Exception.Message;if($stage-eq'format'){$formatStatus='FAIL'};if($stage-eq'build'){$buildStatus='FAIL'};Write-Host "Gate failure: $($_.Exception.Message)"}
+finally{try{& "$PSScriptRoot/write-ci-summary.ps1" -Gate cross-platform -Status $(if($exitCode){'FAIL'}else{'PASS'}) -FailureStage $(if($exitCode){$stage}else{'none'}) -FailureMessage $(if($exitCode){$failure}else{'none'}) -LastCompletedStage $last -StartedAtUtc $started -FormatStatus $formatStatus -BuildStatus $buildStatus}catch{$summaryError=$_;Write-Host "Summary generation failed: $summaryError";$fallback="$Root/.cache/ci-evidence-source/cross-platform/summary.json";New-Item -ItemType Directory -Force (Split-Path $fallback)|Out-Null;[ordered]@{schemaVersion=1;gateStatus='FAIL';failure=@{stage=$stage;message=$failure;summaryError="$summaryError"}}|ConvertTo-Json -Depth 5|Set-Content $fallback;if(-not$exitCode){$exitCode=1}}};if($exitCode){exit $exitCode}

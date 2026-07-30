@@ -6,7 +6,7 @@ BusinessOS is a local-first Windows desktop application foundation.
 
 **Block 2A — persistence foundation** introduced the Companies SQLite model, generated EF migration, nullable foreign tax IDs, and Polish NIP checksum validation. **Block 2B1 — safe startup and pre-migration backup** adds a coordinated startup sequence: inspect migrations, create and verify an online backup when an existing database needs migration, migrate, and only then open the main window.
 
-On first startup no backup is created; an up-to-date database is opened without a backup or migration. Backup or migration failures lead to a safe retry/close window with a `DiagnosticId`, while technical exception details remain in logs. Block 2B2a adds the infrastructure-only safe Companies restore engine and backup catalog; restore UI remains deferred to Block 2B2b. See [persistence documentation](docs/persistence.md).
+On first startup no backup is created; an up-to-date database is opened without a backup or migration. Backup or migration failures lead to a safe retry/close window with a `DiagnosticId`, while technical exception details remain in logs. Blocks 2B2a and 2B2b provide the safe Companies restore engine, backup catalog, and recovery UI. See [persistence documentation](docs/persistence.md).
 
 ## Environment requirements
 
@@ -23,7 +23,7 @@ Cross-platform validation (does not build or smoke-test the WinUI project):
 pwsh -NoProfile -File ./eng/verify-cross-platform.ps1
 ```
 
-Full Windows validation for Block 1:
+Windows-first validation:
 
 ```powershell
 pwsh -NoProfile -File ./eng/verify-windows.ps1
@@ -53,7 +53,7 @@ dotnet build BusinessOS.sln -c Release --no-restore
 ./eng/test.ps1 -Configuration Release
 ```
 
-## Run the minimal desktop app
+## Run the desktop app
 
 ```powershell
 dotnet run --project src/BusinessOS.Desktop/BusinessOS.Desktop.csproj -c Debug
@@ -115,3 +115,15 @@ dotnet test ./tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj -
 ```
 
 See [docs/persistence.md](docs/persistence.md) for persistence design notes.
+
+## Delivery status
+
+- Block 1 — complete
+- Block 2A — complete
+- Block 2B1 — complete
+- Block 2B2a — complete
+- Block 2B2b — complete
+- Block 2B3 engineering readiness — current block
+- Next: Companies application CRUD
+
+BusinessOS uses the [Windows-first CI policy](docs/ci-policy.md). Gate evidence is staged under `artifacts/ci-evidence`, and CI can be audited read-only without GitHub CLI using `eng/audit-github-ci.ps1`.

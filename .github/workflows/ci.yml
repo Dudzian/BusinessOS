@@ -2,57 +2,69 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [ main, work, work/block-1-foundation ]
+    branches: [ main, work ]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: businessos-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   cross-platform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-businessos
-      - name: Verify tool versions after setup
-        shell: pwsh
-        run: |
-          dotnet --version 2>&1 | Tee-Object .cache/cross-platform-tool-versions.log
-          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>&1 | Tee-Object .cache/cross-platform-tool-versions.log -Append
       - name: Verify cross-platform gate
         shell: pwsh
         run: ./eng/verify-cross-platform.ps1 2>&1 | Tee-Object .cache/verify-cross-platform.log
-      - uses: actions/upload-artifact@v6
+      - name: Stage evidence
+        if: always()
+        shell: pwsh
+        run: ./eng/stage-ci-artifacts.ps1 -Gate cross-platform
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
-          name: cross-platform-diagnostics
-          path: |
-            .cache/setup.log
-            .cache/doctor.txt
-            .cache/tool-versions.log
-            .cache/cross-platform-tool-versions.log
-            .cache/verify-cross-platform.log
-            .cache/environment-tests.log
-            artifacts/test-results/**
-            **/*.trx
+          name: businessos-cross-platform-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ci-evidence/cross-platform/**
+          if-no-files-found: error
+          retention-days: 14
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/setup-businessos
-      - name: Verify tool versions after setup
-        shell: pwsh
-        run: |
-          dotnet --version 2>&1 | Tee-Object .cache/windows-tool-versions.log
-          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>&1 | Tee-Object .cache/windows-tool-versions.log -Append
       - name: Verify Windows gate
         shell: pwsh
         run: ./eng/verify-windows.ps1 2>&1 | Tee-Object .cache/verify-windows.log
-      - uses: actions/upload-artifact@v6
+      - name: Stage evidence
+        if: always()
+        shell: pwsh
+        run: ./eng/stage-ci-artifacts.ps1 -Gate windows
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
-          name: windows-diagnostics
-          path: |
-            .cache/setup.log
-            .cache/doctor.txt
-            .cache/tool-versions.log
-            .cache/windows-tool-versions.log
-            .cache/verify-windows.log
-            artifacts/test-results/**
-            **/*.trx
-            artifacts/smoke-test/**
+          name: businessos-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/ci-evidence/windows/**
+          if-no-files-found: error
+          retention-days: 14
+  required-gates:
+    needs:
+      - cross-platform
+      - windows
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every platform gate
+        shell: pwsh
+        env:
+          CROSS_PLATFORM_RESULT: ${{ needs.cross-platform.result }}
+          WINDOWS_RESULT: ${{ needs.windows.result }}
+        run: |
+          Write-Host "cross-platform=$env:CROSS_PLATFORM_RESULT"
+          Write-Host "windows=$env:WINDOWS_RESULT"
+          if ($env:CROSS_PLATFORM_RESULT -ne 'success' -or $env:WINDOWS_RESULT -ne 'success') { exit 1 }

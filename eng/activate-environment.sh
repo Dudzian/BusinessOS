@@ -7,4 +7,4 @@ RESOLVED="$ROOT/.cache/environment.resolved.env"
 source "$RESOLVED"
 export DOTNET_ROOT NUGET_PACKAGES DOTNET_CLI_HOME DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 NUGET_XMLDOC_MODE=skip
 prepend(){ case ":${!1:-}:" in *":$2:"*) ;; *) export "$1=$2${!1:+:${!1}}";; esac; }
-prepend PATH "$DOTNET_ROOT"; prepend PATH "$POWERSHELL_ROOT"; prepend PSModulePath "$PSMODULE_ROOT"
+prepend PATH "$GITHUB_CLI_ROOT"; prepend PATH "$(dirname "$GH_EXE")"; prepend PATH "$DOTNET_ROOT"; prepend PATH "$POWERSHELL_ROOT"; prepend PSModulePath "$PSMODULE_ROOT"

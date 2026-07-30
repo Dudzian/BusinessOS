@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-01-01T00:00:00Z",
+  "repository": "Dudzian/BusinessOS",
+  "eventName": "pull_request",
+  "workflowName": "ci",
+  "runId": 100,
+  "runAttempt": 1,
+  "jobKey": "cross-platform",
+  "checkoutKind": "pull-request-merge",
+  "commitSha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "commitTreeSha": "937621689ba91808b8eaa275934385f0164300e5",
+  "pullRequestNumber": 20,
+  "pullRequestHeadSha": "ffffffffffffffffffffffffffffffffffffffff",
+  "pullRequestMergeSha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "runnerOs": "Linux",
+  "runnerArch": "X64",
+  "runnerImage": "ubuntu-24.04",
+  "dotnetVersion": "10.0.100",
+  "powershellVersion": "7.4.6",
+  "gateName": "cross-platform",
+  "gateStatus": "PASS",
+  "startedAtUtc": "2026-01-01T00:00:00Z",
+  "completedAtUtc": "2026-01-01T00:01:00Z",
+  "durationSeconds": 60,
+  "lastCompletedStage": "complete",
+  "formatStatus": "PASS",
+  "buildStatus": "PASS",
+  "warnings": [],
+  "errors": [],
+  "tests": {
+    "discovered": 10,
+    "executed": 10,
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "trxFiles": [
+      "trx/results.trx"
+    ]
+  },
+  "vulnerabilities": {
+    "status": "PASS",
+    "knownVulnerabilityCount": 0,
+    "checkedTargets": [
+      "BusinessOS.sln"
+    ]
+  },
+  "migrations": {
+    "status": "PASS",
+    "pendingModelChanges": false,
+    "newMigrationCreated": false,
+    "snapshotModified": false
+  },
+  "smoke": {
+    "requiredScenarioCount": 0,
+    "executedScenarioCount": 0,
+    "passedScenarioCount": 0,
+    "failedScenarioCount": 0,
+    "scenarios": []
+  },
+  "failure": {
+    "stage": "none",
+    "message": "none",
+    "diagnosticFiles": []
+  }
+}

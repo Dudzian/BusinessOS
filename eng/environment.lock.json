@@ -75,5 +75,24 @@
   "powershellModuleRoot": ".tools/powershell-modules",
   "nugetCache": ".cache/nuget",
   "dotnetHome": ".cache/dotnet-home",
-  "downloadCache": ".cache/downloads"
+  "downloadCache": ".cache/downloads",
+  "githubCli": {
+    "version": "2.96.0",
+    "installRoot": ".tools/github-cli",
+    "checksumSource": "https://github.com/cli/cli/releases/download/v2.96.0/gh_2.96.0_checksums.txt",
+    "archives": {
+      "linux-x64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.96.0/gh_2.96.0_linux_amd64.tar.gz",
+        "sha256": "83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b1c8bd60"
+      },
+      "win-x64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.96.0/gh_2.96.0_windows_amd64.zip",
+        "sha256": "c2d6acc935cd2f00e2144d7e036d5cd82e6b6bd5594e8c75aa75ef2a4ed6aac3"
+      },
+      "osx-x64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.96.0/gh_2.96.0_macOS_amd64.zip",
+        "sha256": "4bd449df9ad639391bc62b8032546f0fe9edcd8526e06682a4f88abd8c5d163c"
+      }
+    }
+  }
 }

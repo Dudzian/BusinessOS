@@ -8,6 +8,8 @@ $env:NUGET_PACKAGES = $Resolved.nugetPackages
 $env:DOTNET_CLI_HOME = $Resolved.dotnetCliHome
 $env:DOTNET_NOLOGO='1'; $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1'; $env:NUGET_XMLDOC_MODE='skip'
 function Add-PathOnce([string]$Name,[string]$Path) { $sep=[IO.Path]::PathSeparator; $current=(Get-Item -Path "env:$Name" -ErrorAction SilentlyContinue).Value; $parts=($current -split [regex]::Escape($sep))|Where-Object{$_}; if ($parts -notcontains $Path) { Set-Item -Path "env:$Name" -Value (($Path + $sep + ($parts -join $sep)).TrimEnd($sep)) } }
+if($Resolved.githubCliRoot){Add-PathOnce PATH $Resolved.githubCliRoot}
+if($Resolved.githubCliExecutable){Add-PathOnce PATH (Split-Path $Resolved.githubCliExecutable -Parent)}
 Add-PathOnce PATH $Resolved.dotnetRoot
 Add-PathOnce PATH $Resolved.powershellRoot
 Add-PathOnce PSModulePath $Resolved.powershellModuleRoot

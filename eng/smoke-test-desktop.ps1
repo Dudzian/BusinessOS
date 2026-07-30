@@ -87,6 +87,21 @@ function Wait-ReadyWindow($Process) {
     }
     return @(Get-ProcessWindows $Process.Id | Where-Object { $_.Current.Name -eq 'BusinessOS' })[0]
 }
+function Measure-FinalWindowState($Process,[string]$ScenarioName) {
+    $required=5;$observed=0;$last=$null;$deadline=(Get-Date).AddSeconds(30)
+    do {
+        if($Process.HasExited){break}
+        $windows=@(Get-ProcessWindows $Process.Id)
+        $main=@($windows|Where-Object{$_.Current.Name-eq'BusinessOS'-and$null-ne(Get-NamedElement $_ 'Baza danych jest gotowa')})
+        $failure=@($windows|Where-Object{$null-ne(Get-NamedElement $_ 'Ponów próbę')})
+        $recovery=@($windows|Where-Object{$null-ne(Get-AutomationIdElement $_ 'RecoveryHeading')})
+        $last=[ordered]@{WindowCount=$windows.Count;MainWindowCount=$main.Count;FailureWindowCount=$failure.Count;RecoveryWindowCount=$recovery.Count}
+        $expectedFailure=$ScenarioName-eq'PersistenceFailure'
+        $valid=$windows.Count-eq 1-and$recovery.Count-eq 0-and(($expectedFailure-and$failure.Count-eq 1-and$main.Count-eq 0)-or(-not$expectedFailure-and$main.Count-eq 1-and$failure.Count-eq 0))
+        if($valid){$observed++}else{$observed=0};if($observed-lt$required){Start-Sleep -Milliseconds 200}
+    }while($observed-lt$required-and(Get-Date)-lt$deadline)
+    [pscustomobject]@{RequiredSamples=$required;ObservedConsecutiveSamples=$observed;Passed=$observed-ge$required;LastObservedWindowCounts=$last}
+}
 function Select-ValidRecoveryItem($Recovery) {
     $list = Get-AutomationIdElement $Recovery 'RecoveryBackupList'
     if ($null -eq $list) { throw 'Recovery backup list was not found.' }
@@ -103,7 +118,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
     $entryId = if ($Origin -eq 'MainWindow') { 'OpenRecoveryFromMainButton' } else { 'OpenRecoveryFromFailureButton' }
     Invoke-AutomationIdButton $InitialRoot $entryId
     $recovery = Wait-RecoveryWindow $Process
-    Add-Content $diagnostics 'RecoveryOpened: True'
+    Add-Content $diagnostics 'RecoveryOpened: True';$script:recoveryOpened=$true;$script:stableSamplesObserved=5
     Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Recovery catalog did not load.' -Condition {
         $refresh = Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton'
         return $null -ne $refresh -and $refresh.Current.IsEnabled
@@ -114,7 +129,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
     if ($counts.Valid -ne $fixture.ExpectedValidBackupCount -or $counts.Invalid -ne $fixture.ExpectedInvalidBackupCount) {
         throw "Recovery catalog does not match fixture: valid=$($counts.Valid)/$($fixture.ExpectedValidBackupCount), invalid=$($counts.Invalid)/$($fixture.ExpectedInvalidBackupCount)."
     }
-    Add-Content $diagnostics "CatalogLoaded: True`nCatalogItemCount: $($counts.Total)`nValidBackupCount: $($counts.Valid)`nInvalidBackupCount: $($counts.Invalid)`nRestoreDisabledWithoutSelection: True"
+    Add-Content $diagnostics "CatalogLoaded: True`nCatalogItemCount: $($counts.Total)`nValidBackupCount: $($counts.Valid)`nInvalidBackupCount: $($counts.Invalid)`nRestoreDisabledWithoutSelection: True";$script:catalogLoaded=$true;$script:catalogItemCount=$counts.Total;$script:validBackupCount=$counts.Valid;$script:invalidBackupCount=$counts.Invalid;$script:restoreDisabledWithoutSelection=$true
     if (-not (Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton').Current.IsEnabled) { throw 'Restore did not enable for valid backup.' }
 
     if ($Origin -eq 'MainWindow') {
@@ -129,29 +144,39 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
             return $null -eq $dialog -and $null -eq $cancel -and $null -ne $back -and $back.Current.IsEnabled -and
                 $null -ne $restoreAfterCancel -and $restoreAfterCancel.Current.IsEnabled
         }
-        Add-Content $diagnostics 'ConfirmationCancelPassed: True'
+        Add-Content $diagnostics 'ConfirmationCancelPassed: True';$script:confirmationCancelPassed=$true
         Invoke-AutomationIdButton $recovery 'BackFromRecoveryButton'
         $main = Wait-ReadyWindow $Process
-        Add-Content $diagnostics 'BackNavigationPassed: True'
+        Add-Content $diagnostics 'BackNavigationPassed: True';$script:backNavigationPassed=$true
         Invoke-AutomationIdButton $main 'OpenRecoveryFromMainButton'
         $recovery = Wait-RecoveryWindow $Process
         Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Second recovery catalog did not load.' -Condition { (Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton').Current.IsEnabled }
         $null = Select-ValidRecoveryItem $recovery
     } else {
-        Add-Content $diagnostics "BackNavigationPassed: NotApplicable`nConfirmationCancelPassed: NotApplicable"
-        Remove-Item -LiteralPath $blocked -Force
-        New-Item -ItemType Directory -Path $blocked | Out-Null
+        Invoke-AutomationIdButton $recovery 'BackFromRecoveryButton'
+        Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Failure window did not become stable after Back.' -Condition {
+            $windows=Get-ProcessWindows $Process.Id;return $windows.Count -eq 1 -and $null -ne (Get-NamedElement $windows[0] 'Ponów próbę')
+        }
+        $failureWindow=(Get-ProcessWindows $Process.Id)[0];$script:backNavigationPassed=$true;Add-Content $diagnostics 'BackNavigationPassed: True'
+        Invoke-AutomationIdButton $failureWindow 'OpenRecoveryFromFailureButton';$recovery=Wait-RecoveryWindow $Process
+        Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Second recovery catalog did not load.' -Condition { (Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton').Current.IsEnabled }
+        $null=Select-ValidRecoveryItem $recovery
+        Invoke-AutomationIdButton $recovery 'RestoreSelectedBackupButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Confirmation dialog did not open.' -Condition {$null-ne(Get-AutomationIdElement $recovery 'CancelRestoreButton')}
+        Invoke-AutomationIdButton $recovery 'CancelRestoreButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Confirmation cancellation did not stabilize.' -Condition {$null-eq(Get-AutomationIdElement $recovery 'ConfirmRestoreDialog') -and (Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton').Current.IsEnabled}
+        $script:confirmationCancelPassed=$true;Add-Content $diagnostics 'ConfirmationCancelPassed: True'
+        Remove-Item -LiteralPath $blocked -Force;New-Item -ItemType Directory -Path $blocked | Out-Null
     }
 
     Invoke-AutomationIdButton $recovery 'RestoreSelectedBackupButton'
     Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Confirmation dialog did not open.' -Condition { $null -ne (Get-AutomationIdElement $recovery 'ConfirmRestoreButton') }
     Invoke-AutomationIdButton $recovery 'ConfirmRestoreButton'
-    Add-Content $diagnostics 'RestoreStarted: True'
+    Add-Content $diagnostics 'RestoreStarted: True';$script:restoreStarted=$true
     $main = Wait-ReadyWindow $Process
     $validationJson = dotnet run --project tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj -c $Configuration --no-build -- validate-restored --root $artifactRoot | Select-Object -Last 1
     $validation = $validationJson | ConvertFrom-Json
     if ($validation.CompanyDisplayName -ne 'Selected Backup Company' -or $validation.QuickCheck -ne 'ok') { throw 'Fixture validation failed.' }
-    Add-Content $diagnostics "RestoreSucceeded: True`nPostRestoreStartupSucceeded: True`nFixtureValidation: True`nFinalWindowCount: 1`nFinalMainWindowCount: 1`nFinalFailureWindowCount: 0`nFinalRecoveryWindowCount: 0"
+    Add-Content $diagnostics "RestoreSucceeded: True`nPostRestoreStartupSucceeded: True`nFixtureValidation: PASS`nFinalWindowCount: 1`nFinalMainWindowCount: 1`nFinalFailureWindowCount: 0`nFinalRecoveryWindowCount: 0"
+    $script:restoreSucceeded=$true;$script:postRestoreStartupSucceeded=$true;$script:fixtureValidation='PASS'
     return $main
 }
 $exe = Get-ChildItem -Path (Join-Path $repoRoot 'src/BusinessOS.Desktop/bin') -Recurse -Filter BusinessOS.Desktop.exe |
@@ -178,6 +203,8 @@ $targetWindowAutomationId = 'NOT CAPTURED'
 $targetWindowControlType = 'NOT CAPTURED'
 $processAndTargetHandleMatch = 'NOT CAPTURED'
 $closeDispatchMethod = 'NOT RUN'
+$shutdownMethod='NOT_RUN'
+$finalWindowCount=0;$finalMainWindowCount=0;$finalFailureWindowCount=0;$finalRecoveryWindowCount=0;$stableWindowStatePassed=$false;$catalogItemCount=0;$validBackupCount=0;$invalidBackupCount=0;$recoveryOpened=$false;$catalogLoaded=$false;$restoreDisabledWithoutSelection=$false;$confirmationCancelPassed=$false;$backNavigationPassed=$false;$restoreStarted=$false;$restoreSucceeded=$false;$postRestoreStartupSucceeded=$false;$fixtureValidation='NOT_APPLICABLE';$stableSamplesObserved=0
 try {
     Add-Content -Path $diagnostics -Value "EXE: $($exe.FullName)"
     $process = Start-Process -FilePath $exe.FullName -PassThru
@@ -263,6 +290,10 @@ try {
                 if ($null -eq $retryButton -or -not $retryButton.Current.IsEnabled) { throw "Retry $attempt did not re-enable the retry button." }
                 $root = $windows[0]
             }
+            $measurement=Measure-FinalWindowState $process $Scenario
+            if(-not$measurement.Passed){throw 'Persistence failure window did not produce five stable measured samples.'}
+            $stableSamplesObserved=$measurement.ObservedConsecutiveSamples;$stableWindowStatePassed=$measurement.Passed
+            $finalWindowCount=$measurement.LastObservedWindowCounts.WindowCount;$finalMainWindowCount=$measurement.LastObservedWindowCounts.MainWindowCount;$finalFailureWindowCount=$measurement.LastObservedWindowCounts.FailureWindowCount;$finalRecoveryWindowCount=$measurement.LastObservedWindowCounts.RecoveryWindowCount
             Invoke-NamedButton $root 'Zamknij'
             if (-not $process.WaitForExit(10000)) { throw 'Close button did not terminate BusinessOS.Desktop.' }
             if ($process.ExitCode -ne 0) { throw "Close button produced exit code $($process.ExitCode)." }
@@ -280,6 +311,12 @@ try {
     Write-Host "MainWindowTitle: $($process.MainWindowTitle)"
     Write-Host "UIAutomation: attached"
     Write-Host "Diagnostics: $diagnostics"
+    if($Scenario-ne'PersistenceFailure'){
+        $measurement=Measure-FinalWindowState $process $Scenario
+        if(-not$measurement.Passed){throw 'Final window state did not produce five stable measured samples.'}
+        $stableSamplesObserved=$measurement.ObservedConsecutiveSamples;$stableWindowStatePassed=$measurement.Passed
+        $finalWindowCount=$measurement.LastObservedWindowCounts.WindowCount;$finalMainWindowCount=$measurement.LastObservedWindowCounts.MainWindowCount;$finalFailureWindowCount=$measurement.LastObservedWindowCounts.FailureWindowCount;$finalRecoveryWindowCount=$measurement.LastObservedWindowCounts.RecoveryWindowCount
+    }
     $smokeChecksPassed = $true
 }
 catch {
@@ -394,6 +431,11 @@ finally {
     $env:BusinessOS__Persistence__BackupDirectory = $oldBackupDirectory
     $env:BusinessOS__Persistence__MaxBackups = $oldMaxBackups
 }
+
+$scenarioDirectory=Join-Path $repoRoot 'artifacts/smoke-test/scenarios';New-Item -ItemType Directory -Force $scenarioDirectory|Out-Null
+$scenarioStatus=if($smokeChecksPassed-and$null-eq$primaryFailure-and$null-eq$cleanupFailure-and$null-eq$shutdownFailure){'PASS'}else{'FAIL'}
+$scenarioEvidence=[ordered]@{name=$Scenario;status=$scenarioStatus;fixturePrepared=($Scenario-like'RecoveryFrom*');recoveryOrigin=if($Scenario-eq'RecoveryFromReady'){'MainWindow'}elseif($Scenario-eq'RecoveryFromStartupFailure'){'StartupFailure'}else{'None'};recoveryOpened=[bool]$recoveryOpened;catalogLoaded=[bool]$catalogLoaded;catalogItemCount=[int]$catalogItemCount;validBackupCount=[int]$validBackupCount;invalidBackupCount=[int]$invalidBackupCount;restoreDisabledWithoutSelection=[bool]$restoreDisabledWithoutSelection;confirmationCancelPassed=[bool]$confirmationCancelPassed;backNavigationPassed=[bool]$backNavigationPassed;restoreStarted=[bool]$restoreStarted;restoreSucceeded=[bool]$restoreSucceeded;postRestoreStartupSucceeded=[bool]$postRestoreStartupSucceeded;fixtureValidation=$fixtureValidation;stableSamplesRequired=5;stableSamplesObserved=[int]$stableSamplesObserved;stableWindowStatePassed=[bool]$stableWindowStatePassed;finalWindowCount=[int]$finalWindowCount;finalMainWindowCount=[int]$finalMainWindowCount;finalFailureWindowCount=[int]$finalFailureWindowCount;finalRecoveryWindowCount=[int]$finalRecoveryWindowCount;closeDispatchMethod=[string]$closeDispatchMethod;shutdownMethod=[string]$shutdownMethod;exited=[bool]($process-and$process.HasExited);exitCode=if($process-and$process.HasExited){[int]$process.ExitCode}else{1};diagnosticFile=[IO.Path]::GetRelativePath($repoRoot,$diagnostics).Replace('\','/')}
+$scenarioEvidence|ConvertTo-Json -Depth 10|Set-Content (Join-Path $scenarioDirectory "$Scenario.json") -Encoding utf8NoBOM
 
 if ($null -ne $primaryFailure) {
     throw $primaryFailure

@@ -38,6 +38,16 @@ if [ ! -x "$PWSH_BIN" ] || [ "$($PWSH_BIN -NoProfile -Command '$PSVersionTable.P
   fi
 fi
 PV="$($PWSH_BIN -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')"; [ "$PV" = "$POWERSHELL_VERSION" ] || { echo "PowerShell mismatch. Required $POWERSHELL_VERSION, detected $PV" >&2; exit 1; }
+GH_ROOT="$ROOT/$GITHUB_CLI_ROOT_REL"; GH_BIN="$GH_ROOT/bin/gh"; gh_source=local
+host_gh="$(command -v gh || true)"
+if [ -n "$host_gh" ] && [ "$(gh --version | head -1 | awk '{print $3}')" = "$GITHUB_CLI_VERSION" ]; then GH_BIN="$host_gh"; GH_ROOT="$(dirname "$host_gh")"; gh_source=host
+elif [ ! -x "$GH_BIN" ] || [ "$($GH_BIN --version 2>/dev/null | head -1 | awk '{print $3}')" != "$GITHUB_CLI_VERSION" ]; then
+  url_var="GITHUB_CLI_${RID}_URL"; sha_var="GITHUB_CLI_${RID}_SHA256"; url="${!url_var}"; sha="${!sha_var}"; archive="$ROOT/$DOWNLOAD_CACHE_REL/gh-$GITHUB_CLI_VERSION-$(lower "$RID").archive"
+  download "$url" "$archive"; sha256_check "$archive" "$sha"; rm -rf "$GH_ROOT"; mkdir -p "$GH_ROOT"
+  if [[ "$url" == *.zip ]]; then "$PWSH_BIN" -NoProfile -Command "Expand-Archive -LiteralPath '$archive' -DestinationPath '$GH_ROOT' -Force"; else tar -xzf "$archive" -C "$GH_ROOT" --strip-components=1; fi
+  [ -x "$GH_BIN" ] || GH_BIN="$(find "$GH_ROOT" -type f -name 'gh*' | head -1)"; chmod +x "$GH_BIN"; gh_source=local
+fi
+[ "$($GH_BIN --version | head -1 | awk '{print $3}')" = "$GITHUB_CLI_VERSION" ] || { echo 'GitHub CLI provisioning failed' >&2; exit 1; }
 dotnet_root="$(dirname "$DOTNET_BIN")"; pwsh_root="$(dirname "$PWSH_BIN")"
 nuget="$ROOT/$NUGET_CACHE_REL"; dotnet_home="$ROOT/$DOTNET_HOME_REL"; psmodule="$ROOT/$POWERSHELL_MODULE_ROOT_REL"
 {
@@ -50,6 +60,8 @@ nuget="$ROOT/$NUGET_CACHE_REL"; dotnet_home="$ROOT/$DOTNET_HOME_REL"; psmodule="
   write_env_value NUGET_PACKAGES "$nuget"
   write_env_value DOTNET_CLI_HOME "$dotnet_home"
   write_env_value PSMODULE_ROOT "$psmodule"
+  write_env_value GITHUB_CLI_ROOT "$GH_ROOT"
+  write_env_value GH_EXE "$GH_BIN"
 } > "$ROOT/.cache/environment.resolved.env"
 bash -c '''set -euo pipefail; source "$1"; test -n "$DOTNET_ROOT"; test -n "$POWERSHELL_ROOT"; test -n "$NUGET_PACKAGES"''' _ "$ROOT/.cache/environment.resolved.env"
 export BUSINESSOS_DOTNET_EXE="$DOTNET_BIN"
@@ -61,6 +73,10 @@ export BUSINESSOS_PWSH_SOURCE="$pwsh_source"
 export BUSINESSOS_NUGET="$nuget"
 export BUSINESSOS_DOTNET_HOME="$dotnet_home"
 export BUSINESSOS_PSMODULE="$psmodule"
+export BUSINESSOS_GH_EXE="$GH_BIN"
+export BUSINESSOS_GH_ROOT="$GH_ROOT"
+export BUSINESSOS_GH_SOURCE="$gh_source"
+export BUSINESSOS_GH_VERSION="$GITHUB_CLI_VERSION"
 export BUSINESSOS_RESOLVED_JSON="$ROOT/.cache/environment.resolved.json"
 "$PWSH_BIN" -NoProfile -Command '
 $resolved = [ordered]@{
@@ -73,6 +89,10 @@ $resolved = [ordered]@{
   nugetPackages = $env:BUSINESSOS_NUGET
   dotnetCliHome = $env:BUSINESSOS_DOTNET_HOME
   powershellModuleRoot = $env:BUSINESSOS_PSMODULE
+  githubCliExecutable = $env:BUSINESSOS_GH_EXE
+  githubCliRoot = $env:BUSINESSOS_GH_ROOT
+  githubCliSource = $env:BUSINESSOS_GH_SOURCE
+  githubCliVersion = $env:BUSINESSOS_GH_VERSION
 }
 $resolved | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $env:BUSINESSOS_RESOLVED_JSON -Encoding utf8
 Get-Content -LiteralPath $env:BUSINESSOS_RESOLVED_JSON -Raw | ConvertFrom-Json -ErrorAction Stop | Out-Null

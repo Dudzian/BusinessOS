@@ -589,5 +589,17 @@ Assert 'vulnerability scanner rejects malformed JSON' {
 Assert 'vulnerability scanner rejects project entry without path' {
   $d=New-VulnerabilityScanFixture; try{ $logPath=Join-Path $d 'args.jsonl'; $fake=New-FakeDotnetProbe $d; $oldLog=$env:BUSINESSOS_FAKE_DOTNET_LOG; $oldMode=$env:BUSINESSOS_FAKE_DOTNET_MODE; $env:BUSINESSOS_FAKE_DOTNET_LOG=$logPath; $env:BUSINESSOS_FAKE_DOTNET_MODE='missing-path'; Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $d 'eng/check-vulnerable-packages.ps1'),'-ProjectOrSolution',(Join-Path $d 'BusinessOS.sln'),'-DotnetExecutable',$fake) -WorkingDirectory $d -Contains 'Project entry is missing path'|Out-Null } finally { $env:BUSINESSOS_FAKE_DOTNET_LOG=$oldLog; $env:BUSINESSOS_FAKE_DOTNET_MODE=$oldMode; Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
 
+Assert 'Block 2B3 CI hardening is present' {
+ $ci=Get-Content (Join-Path $RepoRoot '.github/workflows/ci.yml') -Raw
+ foreach($bad in 'ubuntu-latest','windows-latest','work/block-1-foundation','path: .cache'){if($ci.Contains($bad)){throw "forbidden workflow text: $bad"}}
+ if($ci -match 'uses:\s+[^\s]+@v\d+'){throw 'external action is not SHA pinned'}
+ foreach($required in 'workflow_dispatch:','permissions:','contents: read','actions: read','concurrency:','timeout-minutes:','required-gates:','if-no-files-found: error','artifacts/ci-evidence/cross-platform/**','artifacts/ci-evidence/windows/**'){if(-not$ci.Contains($required)){throw "missing workflow setting: $required"}}
+ if(-not(Test-Path (Join-Path $RepoRoot 'eng/schemas/ci-evidence.schema.json'))){throw 'summary schema missing'}
+ $audit=Get-Content (Join-Path $RepoRoot 'eng/audit-github-ci.ps1') -Raw;if($audit -match '(^|[;&| ])gh([ ;&|]|$)'){throw 'auditor invokes forbidden CLI'}
+ $lock=Get-Content (Join-Path $RepoRoot 'eng/environment.lock.json') -Raw|ConvertFrom-Json;if(-not$lock.githubCli.version){throw 'GitHub CLI not pinned'}
+ $doctor=Get-Content (Join-Path $RepoRoot 'eng/doctor.ps1') -Raw;if($doctor-notmatch "'Audit'"){throw 'doctor Audit missing'}
+ $readme=Get-Content (Join-Path $RepoRoot 'README.md') -Raw;if($readme-match 'restore UI remains deferred to Block 2B2b|Full Windows validation for Block 1'){throw 'README stale'}
+}
+
 Assert 'Windows verifier fails outside Windows' { if(-not $IsWindows){ Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $RepoRoot 'eng/verify-windows.ps1')) -WorkingDirectory $RepoRoot -Contains 'must run on Windows' | Out-Null } }
 if($script:Failures -gt 0){exit 1}

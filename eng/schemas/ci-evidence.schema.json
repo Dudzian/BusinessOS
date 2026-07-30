@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://businessos.local/schemas/ci-evidence.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generatedAtUtc",
+    "repository",
+    "eventName",
+    "workflowName",
+    "runId",
+    "runAttempt",
+    "jobKey",
+    "checkoutKind",
+    "commitSha",
+    "commitTreeSha",
+    "pullRequestNumber",
+    "pullRequestHeadSha",
+    "pullRequestMergeSha",
+    "runnerOs",
+    "runnerArch",
+    "runnerImage",
+    "dotnetVersion",
+    "powershellVersion",
+    "gateName",
+    "gateStatus",
+    "startedAtUtc",
+    "completedAtUtc",
+    "durationSeconds",
+    "lastCompletedStage",
+    "formatStatus",
+    "buildStatus",
+    "warnings",
+    "errors",
+    "tests",
+    "vulnerabilities",
+    "migrations",
+    "smoke",
+    "failure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "generatedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eventName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflowName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runId": {
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    "runAttempt": {
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    "jobKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checkoutKind": {
+      "enum": [
+        "pull-request-merge",
+        "branch-head",
+        "local"
+      ]
+    },
+    "commitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "commitTreeSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "pullRequestNumber": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "pullRequestHeadSha": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pullRequestMergeSha": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runnerOs": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runnerArch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runnerImage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dotnetVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "powershellVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gateName": {
+      "enum": [
+        "cross-platform",
+        "windows"
+      ]
+    },
+    "gateStatus": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_RUN"
+      ]
+    },
+    "startedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "lastCompletedStage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "formatStatus": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_RUN"
+      ]
+    },
+    "buildStatus": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_RUN"
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "discovered",
+        "executed",
+        "passed",
+        "failed",
+        "skipped",
+        "trxFiles"
+      ],
+      "properties": {
+        "discovered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trxFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "vulnerabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "knownVulnerabilityCount",
+        "checkedTargets"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "knownVulnerabilityCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checkedTargets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "pendingModelChanges",
+        "newMigrationCreated",
+        "snapshotModified"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        },
+        "pendingModelChanges": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "newMigrationCreated": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshotModified": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "smoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredScenarioCount",
+        "executedScenarioCount",
+        "passedScenarioCount",
+        "failedScenarioCount",
+        "scenarios"
+      ],
+      "properties": {
+        "requiredScenarioCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executedScenarioCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passedScenarioCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failedScenarioCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "status",
+              "recoveryOrigin",
+              "fixtureValidation",
+              "closeDispatchMethod",
+              "shutdownMethod",
+              "diagnosticFile",
+              "fixturePrepared",
+              "recoveryOpened",
+              "catalogLoaded",
+              "restoreDisabledWithoutSelection",
+              "confirmationCancelPassed",
+              "backNavigationPassed",
+              "restoreStarted",
+              "restoreSucceeded",
+              "postRestoreStartupSucceeded",
+              "stableWindowStatePassed",
+              "exited",
+              "catalogItemCount",
+              "validBackupCount",
+              "invalidBackupCount",
+              "stableSamplesRequired",
+              "stableSamplesObserved",
+              "finalWindowCount",
+              "finalMainWindowCount",
+              "finalFailureWindowCount",
+              "finalRecoveryWindowCount",
+              "exitCode"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "NOT_RUN"
+                ]
+              },
+              "recoveryOrigin": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fixtureValidation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "closeDispatchMethod": {
+                "type": "string",
+                "minLength": 1
+              },
+              "shutdownMethod": {
+                "type": "string",
+                "minLength": 1
+              },
+              "diagnosticFile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fixturePrepared": {
+                "type": "boolean"
+              },
+              "recoveryOpened": {
+                "type": "boolean"
+              },
+              "catalogLoaded": {
+                "type": "boolean"
+              },
+              "restoreDisabledWithoutSelection": {
+                "type": "boolean"
+              },
+              "confirmationCancelPassed": {
+                "type": "boolean"
+              },
+              "backNavigationPassed": {
+                "type": "boolean"
+              },
+              "restoreStarted": {
+                "type": "boolean"
+              },
+              "restoreSucceeded": {
+                "type": "boolean"
+              },
+              "postRestoreStartupSucceeded": {
+                "type": "boolean"
+              },
+              "stableWindowStatePassed": {
+                "type": "boolean"
+              },
+              "exited": {
+                "type": "boolean"
+              },
+              "catalogItemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "validBackupCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "invalidBackupCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stableSamplesRequired": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stableSamplesObserved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "finalWindowCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "finalMainWindowCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "finalFailureWindowCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "finalRecoveryWindowCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "exitCode": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "maxItems": 5
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "message",
+        "diagnosticFiles"
+      ],
+      "properties": {
+        "stage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diagnosticFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "remoteHeadSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "remoteHeadTreeSha": "1111111111111111111111111111111111111111",
+  "remoteMergeSha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "remoteMergeTreeSha": "937621689ba91808b8eaa275934385f0164300e5",
+  "runAttempt": 1,
+  "jobs": [
+    {
+      "name": "cross-platform",
+      "conclusion": "success"
+    },
+    {
+      "name": "windows",
+      "conclusion": "success"
+    },
+    {
+      "name": "required-gates",
+      "conclusion": "success"
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "businessos-cross-platform-100-1",
+      "path": "cross-platform",
+      "expired": false
+    },
+    {
+      "name": "businessos-windows-100-1",
+      "path": "windows",
+      "expired": false
+    }
+  ],
+  "localTreeSha": "937621689ba91808b8eaa275934385f0164300e5"
+}

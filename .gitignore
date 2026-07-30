@@ -6,3 +6,6 @@ artifacts/
 *.bosbackup
 *.pfx
 *.snk
+
+.cache/
+.tools/

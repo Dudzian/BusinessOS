@@ -30,6 +30,7 @@ public static class BusinessOsHost
                     options.MaxBackups = ParseMaxBackups(configuredMaxBackups);
                 });
                 services.AddSingleton<IApplicationStartupCoordinator, ApplicationStartupCoordinator>();
+                services.AddSingleton<ICompaniesRecoveryWorkflow, CompaniesRecoveryWorkflow>();
                 services.AddBusinessProjectsModule();
                 services.AddBudgetingModule();
             })

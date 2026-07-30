@@ -83,7 +83,6 @@ Deferred to later blocks:
 - Companies CRUD UI;
 - BusinessProjects persistence and UI;
 - Budgeting persistence and UI;
-- restore UI (the safe infrastructure restore engine is available);
 - MSIX installer;
 - GymOS compatibility and financial engine.
 
@@ -92,6 +91,7 @@ Deferred to later blocks:
 
 - **Block 1 — foundation**: modular monolith structure, diagnostics, environment checks, test result verification, and dependency vulnerability scanning.
 - **Block 2A — Companies SQLite persistence foundation**: EF Core 10 + SQLite infrastructure for the Companies module, including `CompaniesDbContext`, explicit mapping, local migrations, integration tests, and migration tests.
+- **Block 2B2b — Companies recovery UI**: recovery is available from the main shell and safe persistence-startup failures. It lists only BusinessOS-managed backups, never accepts an arbitrary path or file picker selection, requires destructive-action confirmation, and reports safe messages with a `DiagnosticId`. After restore, Block 2B1 verifies the database and applies pending migrations.
 
 The default local database path is `%LocalAppData%/BusinessOS/Data/businessos.db`. It can be overridden with configuration key `BusinessOS:Persistence:DatabasePath`. Host construction only registers services; migrations are **not** automatically executed at application startup in Block 2A. Companies CRUD UI remains a later stage.
 

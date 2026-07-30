@@ -1,6 +1,6 @@
 param(
     [string]$Configuration = 'Release',
-    [ValidateSet('Ready','PersistenceFailure','PersistenceFailureThenReady')]
+    [ValidateSet('Ready','PersistenceFailure','PersistenceFailureThenReady','RecoveryFromReady','RecoveryFromStartupFailure')]
     [string]$Scenario = 'Ready'
 )
 $ErrorActionPreference = 'Stop'
@@ -15,15 +15,33 @@ $oldBackupDirectory = $env:BusinessOS__Persistence__BackupDirectory
 $oldMaxBackups = $env:BusinessOS__Persistence__MaxBackups
 $env:BusinessOS__Persistence__BackupDirectory = Join-Path $artifactRoot 'backups'
 $env:BusinessOS__Persistence__MaxBackups = '3'
-if ($Scenario -eq 'Ready') {
-    $env:BusinessOS__Persistence__DatabasePath = Join-Path $artifactRoot 'data/businessos.db'
-} else {
-    $blocked = Join-Path $artifactRoot 'blocked'
-    Set-Content -Path $blocked -Value 'not a directory'
-    $env:BusinessOS__Persistence__DatabasePath = Join-Path $blocked 'businessos.db'
+switch ($Scenario) {
+    'Ready' { $env:BusinessOS__Persistence__DatabasePath = Join-Path $artifactRoot 'data/businessos.db' }
+    'PersistenceFailure' {
+        $blocked = Join-Path $artifactRoot 'blocked'; Set-Content -Path $blocked -Value 'not a directory'
+        $env:BusinessOS__Persistence__DatabasePath = Join-Path $blocked 'businessos.db'
+    }
+    'PersistenceFailureThenReady' {
+        $blocked = Join-Path $artifactRoot 'blocked'; Set-Content -Path $blocked -Value 'not a directory'
+        $env:BusinessOS__Persistence__DatabasePath = Join-Path $blocked 'businessos.db'
+    }
+    'RecoveryFromReady' {
+        $fixtureJson = dotnet run --project tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj -c $Configuration --no-build -- prepare-ready --root $artifactRoot | Select-Object -Last 1
+        $fixture = $fixtureJson | ConvertFrom-Json
+        $env:BusinessOS__Persistence__DatabasePath = $fixture.DatabasePath
+        $env:BusinessOS__Persistence__BackupDirectory = $fixture.BackupDirectory
+    }
+    'RecoveryFromStartupFailure' {
+        $fixtureJson = dotnet run --project tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj -c $Configuration --no-build -- prepare-startup-failure --root $artifactRoot | Select-Object -Last 1
+        $fixture = $fixtureJson | ConvertFrom-Json
+        $blocked = $fixture.BlockedPath
+        $env:BusinessOS__Persistence__DatabasePath = $fixture.DatabasePath
+        $env:BusinessOS__Persistence__BackupDirectory = $fixture.BackupDirectory
+    }
 }
 $diagnostics = Join-Path $artifactRoot 'desktop-smoke-diagnostics.txt'
 Set-Content -Path $diagnostics -Value "BusinessOS desktop smoke test started: $(Get-Date -Format o)"
+Add-Content -Path $diagnostics -Value "Scenario: $Scenario"
 if (-not $IsWindows) { throw 'Desktop smoke test must run on Windows.' }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -41,6 +59,100 @@ function Invoke-NamedButton($Window, [string]$Name) {
     if ($null -eq $button) { throw "UI Automation button was not found: $Name" }
     $pattern = $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
     $pattern.Invoke()
+}
+function Get-AutomationIdElement($Root, [string]$AutomationId) {
+    $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $AutomationId)
+    $Root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+}
+function Invoke-AutomationIdButton($Root, [string]$AutomationId) {
+    $button = Get-AutomationIdElement $Root $AutomationId
+    if ($null -eq $button) { throw "UI Automation button was not found: $AutomationId" }
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+function Wait-RecoveryWindow($Process) {
+    Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Recovery window did not become stable.' -Condition {
+        $windows = Get-ProcessWindows $Process.Id
+        $recovery = @($windows | Where-Object { $null -ne (Get-AutomationIdElement $_ 'RecoveryHeading') })
+        return $windows.Count -eq 1 -and $recovery.Count -eq 1
+    }
+    return @(Get-ProcessWindows $Process.Id | Where-Object { $null -ne (Get-AutomationIdElement $_ 'RecoveryHeading') })[0]
+}
+function Wait-ReadyWindow($Process) {
+    Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Main window did not become stable.' -Condition {
+        $windows = Get-ProcessWindows $Process.Id
+        $main = @($windows | Where-Object { $_.Current.Name -eq 'BusinessOS' -and $null -ne (Get-NamedElement $_ 'Baza danych jest gotowa') })
+        $failure = @($windows | Where-Object { $null -ne (Get-NamedElement $_ 'Ponów próbę') })
+        $recovery = @($windows | Where-Object { $null -ne (Get-AutomationIdElement $_ 'RecoveryHeading') })
+        return $windows.Count -eq 1 -and $main.Count -eq 1 -and $failure.Count -eq 0 -and $recovery.Count -eq 0
+    }
+    return @(Get-ProcessWindows $Process.Id | Where-Object { $_.Current.Name -eq 'BusinessOS' })[0]
+}
+function Select-ValidRecoveryItem($Recovery) {
+    $list = Get-AutomationIdElement $Recovery 'RecoveryBackupList'
+    if ($null -eq $list) { throw 'Recovery backup list was not found.' }
+    $items = @($list.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+        Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::ListItem })
+    $valid = @($items | Where-Object { $_.Current.Name -match 'prawidłowa' -and $_.Current.Name -notmatch 'nieprawidłowa' })
+    $invalid = @($items | Where-Object { $_.Current.Name -match 'nieprawidłowa' })
+    if ($items.Count -lt 2 -or $valid.Count -ne 1 -or $invalid.Count -lt 1) { throw "Unexpected recovery catalog: total=$($items.Count), valid=$($valid.Count), invalid=$($invalid.Count)." }
+    $valid[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    return @{ Total = $items.Count; Valid = $valid.Count; Invalid = $invalid.Count }
+}
+function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
+    Add-Content $diagnostics "FixturePrepared: True`nRecoveryOrigin: $Origin"
+    $entryId = if ($Origin -eq 'MainWindow') { 'OpenRecoveryFromMainButton' } else { 'OpenRecoveryFromFailureButton' }
+    Invoke-AutomationIdButton $InitialRoot $entryId
+    $recovery = Wait-RecoveryWindow $Process
+    Add-Content $diagnostics 'RecoveryOpened: True'
+    Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Recovery catalog did not load.' -Condition {
+        $refresh = Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton'
+        return $null -ne $refresh -and $refresh.Current.IsEnabled
+    }
+    $restore = Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton'
+    if ($null -eq $restore -or $restore.Current.IsEnabled) { throw 'Restore must be disabled without selection.' }
+    $counts = Select-ValidRecoveryItem $recovery
+    if ($counts.Valid -ne $fixture.ExpectedValidBackupCount -or $counts.Invalid -ne $fixture.ExpectedInvalidBackupCount) {
+        throw "Recovery catalog does not match fixture: valid=$($counts.Valid)/$($fixture.ExpectedValidBackupCount), invalid=$($counts.Invalid)/$($fixture.ExpectedInvalidBackupCount)."
+    }
+    Add-Content $diagnostics "CatalogLoaded: True`nCatalogItemCount: $($counts.Total)`nValidBackupCount: $($counts.Valid)`nInvalidBackupCount: $($counts.Invalid)`nRestoreDisabledWithoutSelection: True"
+    if (-not (Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton').Current.IsEnabled) { throw 'Restore did not enable for valid backup.' }
+
+    if ($Origin -eq 'MainWindow') {
+        Invoke-AutomationIdButton $recovery 'RestoreSelectedBackupButton'
+        Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Confirmation dialog did not open.' -Condition { $null -ne (Get-AutomationIdElement $recovery 'CancelRestoreButton') }
+        Invoke-AutomationIdButton $recovery 'CancelRestoreButton'
+        Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Confirmation dialog did not close cleanly after cancellation.' -Condition {
+            $dialog = Get-AutomationIdElement $recovery 'ConfirmRestoreDialog'
+            $cancel = Get-AutomationIdElement $recovery 'CancelRestoreButton'
+            $back = Get-AutomationIdElement $recovery 'BackFromRecoveryButton'
+            $restoreAfterCancel = Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton'
+            return $null -eq $dialog -and $null -eq $cancel -and $null -ne $back -and $back.Current.IsEnabled -and
+                $null -ne $restoreAfterCancel -and $restoreAfterCancel.Current.IsEnabled
+        }
+        Add-Content $diagnostics 'ConfirmationCancelPassed: True'
+        Invoke-AutomationIdButton $recovery 'BackFromRecoveryButton'
+        $main = Wait-ReadyWindow $Process
+        Add-Content $diagnostics 'BackNavigationPassed: True'
+        Invoke-AutomationIdButton $main 'OpenRecoveryFromMainButton'
+        $recovery = Wait-RecoveryWindow $Process
+        Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Second recovery catalog did not load.' -Condition { (Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton').Current.IsEnabled }
+        $null = Select-ValidRecoveryItem $recovery
+    } else {
+        Add-Content $diagnostics "BackNavigationPassed: NotApplicable`nConfirmationCancelPassed: NotApplicable"
+        Remove-Item -LiteralPath $blocked -Force
+        New-Item -ItemType Directory -Path $blocked | Out-Null
+    }
+
+    Invoke-AutomationIdButton $recovery 'RestoreSelectedBackupButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Confirmation dialog did not open.' -Condition { $null -ne (Get-AutomationIdElement $recovery 'ConfirmRestoreButton') }
+    Invoke-AutomationIdButton $recovery 'ConfirmRestoreButton'
+    Add-Content $diagnostics 'RestoreStarted: True'
+    $main = Wait-ReadyWindow $Process
+    $validationJson = dotnet run --project tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj -c $Configuration --no-build -- validate-restored --root $artifactRoot | Select-Object -Last 1
+    $validation = $validationJson | ConvertFrom-Json
+    if ($validation.CompanyDisplayName -ne 'Selected Backup Company' -or $validation.QuickCheck -ne 'ok') { throw 'Fixture validation failed.' }
+    Add-Content $diagnostics "RestoreSucceeded: True`nPostRestoreStartupSucceeded: True`nFixtureValidation: True`nFinalWindowCount: 1`nFinalMainWindowCount: 1`nFinalFailureWindowCount: 0`nFinalRecoveryWindowCount: 0"
+    return $main
 }
 $exe = Get-ChildItem -Path (Join-Path $repoRoot 'src/BusinessOS.Desktop/bin') -Recurse -Filter BusinessOS.Desktop.exe |
     Where-Object { $_.FullName -match [regex]::Escape($Configuration) } |
@@ -80,6 +192,12 @@ try {
     if ($Scenario -eq 'Ready' -and $process.MainWindowTitle -ne 'BusinessOS') { throw "Unexpected main window title: '$($process.MainWindowTitle)'." }
     $root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
     if ($null -eq $root) { throw 'UI Automation could not attach to the main window.' }
+    if ($Scenario -like 'RecoveryFrom*') {
+        $origin = if ($Scenario -eq 'RecoveryFromReady') { 'MainWindow' } else { 'StartupFailure' }
+        $root = Invoke-RecoverySmoke $root $process $origin
+        $texts = [System.Collections.Generic.List[string]]::new()
+        $texts.Add('Baza danych jest gotowa')
+    } else {
     $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
     $texts = New-Object System.Collections.Generic.List[string]
     foreach ($element in $elements) {
@@ -150,6 +268,7 @@ try {
             if ($process.ExitCode -ne 0) { throw "Close button produced exit code $($process.ExitCode)." }
             $closedByButton = $true
         }
+    }
     }
     Add-Content -Path $diagnostics -Value "MainWindowHandle: $($process.MainWindowHandle)"
     Add-Content -Path $diagnostics -Value "MainWindowTitle: $($process.MainWindowTitle)"

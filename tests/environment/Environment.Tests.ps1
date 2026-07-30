@@ -40,6 +40,78 @@ Assert 'desktop smoke closes the selected AutomationElement through WindowPatter
         throw 'desktop smoke does not retain Kill solely on the diagnosed failure path'
     }
 }
+Assert 'desktop smoke implements complete recovery scenarios' {
+    $source = Get-Content -LiteralPath (Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1') -Raw
+    foreach ($scenario in 'RecoveryFromReady','RecoveryFromStartupFailure') {
+        if ($source -notmatch "'$scenario'\s*\{") { throw "$scenario does not have a dedicated switch branch" }
+    }
+    foreach ($required in 'prepare-ready','prepare-startup-failure','validate-restored','OpenRecoveryFromMainButton','OpenRecoveryFromFailureButton','ConfirmRestoreButton','CancelRestoreButton','RequiredConsecutiveSuccesses 5','ShutdownMethod: $shutdownMethod') {
+        if (-not $source.Contains($required, [StringComparison]::Ordinal)) { throw "recovery smoke is missing: $required" }
+    }
+    if (-not $source.Contains("`$shutdownMethod = 'Kill'", [StringComparison]::Ordinal) -or -not $source.Contains('ShutdownMethod: $shutdownMethod', [StringComparison]::Ordinal)) { throw 'recovery smoke does not diagnose emergency Kill' }
+}
+Assert 'recovery shutdown preserves UI context and precise internal transition' {
+    $gate = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.AppHost/DeferredShutdownGate.cs') -Raw
+    $window = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw
+    $app = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/App.xaml.cs') -Raw
+    if ($gate.Contains('Func<Task> shutdown', [StringComparison]::Ordinal) -or $gate.Contains('await shutdown()', [StringComparison]::Ordinal)) { throw 'DeferredShutdownGate still invokes a UI shutdown callback' }
+    if (-not $window.Contains('await shutdownGate.WaitForSafeShutdownAsync', [StringComparison]::Ordinal) -or -not $window.Contains('ConfigureAwait(true)', [StringComparison]::Ordinal)) { throw 'recovery does not resume safe shutdown on its captured UI context' }
+    if ($window.IndexOf('if (closeIntent.IsCloseRequested) return;', [StringComparison]::Ordinal) -lt $window.IndexOf('await prepareAfterRestore()', [StringComparison]::Ordinal)) { throw 'post-restore transition is not guarded by close intent after startup completes' }
+    if (-not $app.Contains('!recoveryWindow.AuthorizeInternalClose()', [StringComparison]::Ordinal)) { throw 'App does not reject internal transition after an external close request' }
+    if (-not $window.Contains('closeTask = ObserveCloseTaskAsync()', [StringComparison]::Ordinal) -or -not $window.Contains('Recovery shutdown callback failed', [StringComparison]::Ordinal)) { throw 'fire-and-forget close task is not observed and logged' }
+}
+Assert 'close intent wins over post-restore transition in deterministic tests' {
+    $tests = Get-Content -LiteralPath (Join-Path $RepoRoot 'tests/BusinessOS.IntegrationTests/DeferredShutdownGateTests.cs') -Raw
+    foreach ($name in 'Close_requested_during_post_restore_startup_wins_over_internal_transition','Successful_post_restore_startup_transitions_without_application_shutdown','Idle_external_close_invokes_shutdown_once','Repeated_system_and_button_close_cancel_active_operation_exactly_once') {
+        if (-not $tests.Contains($name, [StringComparison]::Ordinal)) { throw "missing close-intent lifecycle test: $name" }
+    }
+    if ($tests.Contains('var idleGate', [StringComparison]::Ordinal) -or $tests.Contains('internalCloseAuthorized = true', [StringComparison]::Ordinal)) { throw 'lifecycle test bypasses the original close request or manually substitutes transition authorization' }
+}
+Assert 'recovery restore exposes cancellation before tracking and cancels exactly once' {
+    $window = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw
+    $restore = $window.Substring($window.IndexOf('private async void Restore_Click', [StringComparison]::Ordinal), $window.IndexOf('private async Task RestoreCoreAsync', [StringComparison]::Ordinal) - $window.IndexOf('private async void Restore_Click', [StringComparison]::Ordinal))
+    $source = $restore.IndexOf('using var source = new CancellationTokenSource()', [StringComparison]::Ordinal)
+    $publish = $restore.IndexOf('operation = source', [StringComparison]::Ordinal)
+    $create = $restore.IndexOf('currentOperationTask = RestoreCoreAsync(selected, source.Token, start.Task)', [StringComparison]::Ordinal)
+    $track = $restore.IndexOf('shutdownGate.Track(currentOperationTask)', [StringComparison]::Ordinal)
+    $release = $restore.IndexOf('start.SetResult()', [StringComparison]::Ordinal)
+    if ($source -lt 0 -or $publish -lt $source -or $create -lt $publish -or $track -lt $create -or $release -lt $track) { throw 'restore cancellation source is not published before task tracking and start-gate release' }
+    $core = $window.Substring($window.IndexOf('private async Task RestoreCoreAsync', [StringComparison]::Ordinal), $window.IndexOf('private async Task<bool> ConfirmRestoreAsync', [StringComparison]::Ordinal) - $window.IndexOf('private async Task RestoreCoreAsync', [StringComparison]::Ordinal))
+    if ($core.Contains('new CancellationTokenSource', [StringComparison]::Ordinal)) { throw 'RestoreCoreAsync creates its cancellation source after awaiting the start gate' }
+    $request = $window.Substring($window.IndexOf('private void RequestClose()', [StringComparison]::Ordinal), $window.IndexOf('private async Task ObserveCloseTaskAsync', [StringComparison]::Ordinal) - $window.IndexOf('private void RequestClose()', [StringComparison]::Ordinal))
+    if ($request.Contains('.Cancel()', [StringComparison]::Ordinal)) { throw 'RequestClose directly cancels in addition to DeferredShutdownGate' }
+    if (-not $window.Contains('result.CancellationException', [StringComparison]::Ordinal)) { throw 'recovery does not log cancellation callback failures' }
+    $closedStart = $window.IndexOf('Closed +=', [StringComparison]::Ordinal)
+    $closedEnd = $window.IndexOf('Activated +=', $closedStart, [StringComparison]::Ordinal)
+    if ($closedStart -lt 0 -or $closedEnd -lt $closedStart) { throw 'recovery Closed handler could not be isolated' }
+    $closedHandler = $window.Substring($closedStart, $closedEnd - $closedStart)
+    foreach ($forbidden in '.Cancel(','RequestClose(','WaitForSafeShutdownAsync(') {
+        if ($closedHandler.Contains($forbidden, [StringComparison]::Ordinal)) { throw "recovery Closed handler owns forbidden cancellation behavior: $forbidden" }
+    }
+}
+Assert 'cancellation-window tests mirror the production close path' {
+    $tests = Get-Content -LiteralPath (Join-Path $RepoRoot 'tests/BusinessOS.IntegrationTests/DeferredShutdownGateTests.cs') -Raw
+    foreach ($name in 'Close_between_restore_tracking_and_workflow_start_cancels_the_same_restore','Repeated_system_and_button_close_cancel_active_operation_exactly_once','Cancellation_callback_failure_is_reported_but_does_not_block_shutdown','External_close_followed_by_window_closed_cancels_operation_exactly_once','Internal_transition_window_closed_does_not_cancel_operation') {
+        if (-not $tests.Contains($name, [StringComparison]::Ordinal)) { throw "missing cancellation-window test: $name" }
+    }
+    foreach ($required in 'RequestExternalClose()','CloseWhenSafeAsync()','WaitForSafeShutdownAsync','CancelAction?.Invoke()','source.Token.Register') {
+        if (-not $tests.Contains($required, [StringComparison]::Ordinal)) { throw "cancellation harness does not mirror production behavior: $required" }
+    }
+}
+Assert 'recovery smoke fixture and cancellation stabilization are coherent' {
+    $fixture = Get-Content -LiteralPath (Join-Path $RepoRoot 'tests/BusinessOS.RecoverySmokeFixture/Program.cs') -Raw
+    $smoke = Get-Content -LiteralPath (Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1') -Raw
+    $startupBranch = $fixture.Substring($fixture.IndexOf('command == "prepare-startup-failure"', [StringComparison]::Ordinal))
+    if (-not $startupBranch.Contains('InvalidBackupId', [StringComparison]::Ordinal) -or -not $startupBranch.Contains('ExpectedInvalidBackupCount = 1', [StringComparison]::Ordinal)) { throw 'startup-failure fixture does not create and report its invalid backup' }
+    $cancel = $smoke.IndexOf("Invoke-AutomationIdButton `$recovery 'CancelRestoreButton'", [StringComparison]::Ordinal)
+    $stabilized = $smoke.IndexOf("Confirmation dialog did not close cleanly after cancellation.", [StringComparison]::Ordinal)
+    $back = $smoke.IndexOf("Invoke-AutomationIdButton `$recovery 'BackFromRecoveryButton'", [StringComparison]::Ordinal)
+    if ($cancel -lt 0 -or $stabilized -lt $cancel -or $back -lt $stabilized) { throw 'smoke does not stabilize dialog cancellation before back navigation' }
+}
+Assert 'solution remains minimal and excludes engineering recovery fixture' {
+    $solution = Get-Content -LiteralPath (Join-Path $RepoRoot 'BusinessOS.sln') -Raw
+    if ($solution.Contains('BusinessOS.RecoverySmokeFixture', [StringComparison]::Ordinal) -or $solution.Contains('|x86', [StringComparison]::OrdinalIgnoreCase) -or $solution.Contains('|x64', [StringComparison]::OrdinalIgnoreCase)) { throw 'BusinessOS.sln was expanded with engineering fixture or platform matrix' }
+}
 Assert 'Wait-BusinessOSCondition requires consecutive successes' {
     $state=[pscustomobject]@{ Calls=0; Values=@($false,$true,$true,$false,$true,$true,$true) }
     Wait-BusinessOSCondition -TimeoutMessage 'sequence timed out' -TimeoutSeconds 1 -PollingMilliseconds 1 -RequiredConsecutiveSuccesses 3 -Condition {

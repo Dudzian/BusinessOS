@@ -20,6 +20,9 @@
                 <TextBlock Text="{Binding StatusMessage}" FontSize="18" TextWrapping="Wrap" AutomationProperties.Name="Fundament aplikacji został uruchomiony" />
                 <TextBlock Text="Baza danych jest gotowa" FontSize="18" FontWeight="SemiBold" AutomationProperties.Name="Baza danych jest gotowa" />
                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" AutomationProperties.Name="Minimalny shell desktopowy gotowy na kolejne bloki BusinessOS." />
+                <Button Content="Kopie zapasowe" Click="Recovery_Click"
+                        AutomationProperties.Name="Kopie zapasowe"
+                        AutomationProperties.AutomationId="OpenRecoveryFromMainButton" />
             </StackPanel>
         </Border>
     </Grid>

@@ -9,6 +9,21 @@ namespace BusinessOS.ArchitectureTests;
 
 public sealed class ArchitectureRulesTests
 {
+    [Fact]
+    public void AppHost_recovery_DTOs_do_not_expose_sensitive_technical_properties()
+    {
+        string[] forbidden = ["Path", "DatabasePath", "BackupPath", "SafetyBackupPath", "Exception", "StackTrace", "ConnectionString"];
+        var dtoTypes = new[]
+        {
+            typeof(BusinessOS.AppHost.CompaniesRecoveryBackup),
+            typeof(BusinessOS.AppHost.CompaniesRecoveryCatalogResult),
+            typeof(BusinessOS.AppHost.CompaniesRecoveryRestoreResult),
+        };
+
+        dtoTypes.SelectMany(type => type.GetProperties()).Select(property => property.Name)
+            .Should().NotContain(forbidden);
+    }
+
     private static readonly Assembly[] DomainAssemblies =
     [
         typeof(BusinessOS.BuildingBlocks.Domain.Primitives.Money).Assembly,

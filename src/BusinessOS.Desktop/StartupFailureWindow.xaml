@@ -9,6 +9,9 @@
         <TextBlock x:Name="DiagnosticIdText" AutomationProperties.Name="DiagnosticId" />
         <StackPanel Orientation="Horizontal" Spacing="12">
             <Button x:Name="RetryButton" Content="Ponów próbę" Click="Retry_Click" />
+            <Button x:Name="RecoveryButton" Content="Przywróć kopię" Click="Recovery_Click"
+                    AutomationProperties.Name="Przywróć kopię"
+                    AutomationProperties.AutomationId="OpenRecoveryFromFailureButton" />
             <Button x:Name="CloseButton" Content="Zamknij" Click="Close_Click" />
         </StackPanel>
     </StackPanel>

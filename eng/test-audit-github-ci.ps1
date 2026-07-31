@@ -25,4 +25,5 @@ $mutations=[ordered]@{
 foreach($m in $mutations.GetEnumerator()){$d=New-MutatedFixture $m.Key $m.Value;Invoke-Case $m.Key $d $(if($m.Key-like'workflow-*'-or$m.Key-like'*-required-job'){20}else{32})}
 # Real malicious ZIP fixture
 $d=New-MutatedFixture zip-slip {};Add-Type -AssemblyName System.IO.Compression.FileSystem;$zip="$d/malicious.zip";$z=[IO.Compression.ZipFile]::Open($zip,'Create');$entry=$z.CreateEntry('../outside.txt');$w=[IO.StreamWriter]::new($entry.Open());$w.Write('escape');$w.Dispose();$z.Dispose();$i=Get-Content "$d/audit-input.json"-Raw|ConvertFrom-Json;$i.artifacts[0]|Add-Member zipPath 'malicious.zip';$i|ConvertTo-Json -Depth 20|Set-Content "$d/audit-input.json";Invoke-Case zip-slip $d 35;if(Test-Path "$root/artifacts/github-audit-tests/zip-slip/extracted/outside.txt"){Write-Error 'Zip Slip wrote outside extraction';$failed++}
+& pwsh -NoProfile -File "$PSScriptRoot/test-evidence-security-boundaries.ps1";if($LASTEXITCODE){$failed++}
 Write-Host "failed $failed";exit $(if($failed){1}else{0})

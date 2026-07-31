@@ -2,6 +2,34 @@ Set-StrictMode -Version Latest
 function Assert-Properties($Object,[string[]]$Allowed,[string]$Context){if($null-eq$Object){throw "$Context is required"};foreach($name in $Object.PSObject.Properties.Name){if($Allowed-notcontains$name){throw "Unexpected $Context property: $name"}}}
 function Assert-String($Object,[string]$Name,[switch]$Sha){$v=$Object.$Name;if($v-isnot[string]-or[string]::IsNullOrWhiteSpace($v)){throw "$Name must be a non-empty string"};if($Sha-and$v-notmatch'^[0-9a-f]{40}$'){throw "$Name must be a lowercase 40-character SHA"}}
 function Assert-Integer($Object,[string]$Name,[int]$Minimum=0){$v=$Object.$Name;if($v-isnot[int]-and$v-isnot[long]){throw "$Name must be an integer"};if($v-lt$Minimum){throw "$Name must be at least $Minimum"}}
+function ConvertTo-BusinessOSRunNumber([AllowNull()][string]$Value,[string]$Name,[bool]$IsLocal){
+ if($IsLocal-and[string]::IsNullOrWhiteSpace($Value)){return [long]0}
+ $number=[long]0
+ if(-not[long]::TryParse($Value,[Globalization.NumberStyles]::None,[Globalization.CultureInfo]::InvariantCulture,[ref]$number)){throw "$Name must be an invariant-culture Int64 value"}
+ $number
+}
+function New-BusinessOSCiEvidenceSummary{
+ [CmdletBinding()]param([Parameter(Mandatory)][hashtable]$Values)
+ $defaults=[ordered]@{
+  schemaVersion=1;generatedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');repository='local';eventName='local';workflowName='local';runId=[long]0;runAttempt=[long]0;jobKey='cross-platform';checkoutKind='local';commitSha=('0'*40);commitTreeSha=('0'*40);pullRequestNumber=$null;pullRequestHeadSha=$null;pullRequestMergeSha=$null;runnerOs=[Runtime.InteropServices.RuntimeInformation]::OSDescription;runnerArch=[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString();runnerImage='local';dotnetVersion='unknown';powershellVersion=$PSVersionTable.PSVersion.ToString();gateName='cross-platform';gateStatus='FAIL';startedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');completedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');durationSeconds=0.0;lastCompletedStage='none';formatStatus='NOT_RUN';buildStatus='NOT_RUN';warnings=[string[]]@();errors=[string[]]@();tests=[ordered]@{discovered=0;executed=0;passed=0;failed=0;skipped=0;trxFiles=[string[]]@()};vulnerabilities=[ordered]@{status='NOT_RUN';knownVulnerabilityCount=0;checkedTargets=[string[]]@()};migrations=[ordered]@{status='NOT_RUN';pendingModelChanges=$false;newMigrationCreated=$false;snapshotModified=$false};smoke=[ordered]@{requiredScenarioCount=0;executedScenarioCount=0;passedScenarioCount=0;failedScenarioCount=0;scenarios=@()};failure=[ordered]@{stage='initialization';message='CI evidence generation failed';diagnosticFiles=[string[]]@()}
+ }
+ foreach($key in $Values.Keys){if(-not$defaults.Contains($key)){throw "Unexpected summary model property: $key"};$defaults[$key]=$Values[$key]}
+ $isLocal=$defaults.checkoutKind-eq'local'
+ $defaults.runId=ConvertTo-BusinessOSRunNumber ([string]$defaults.runId) runId $isLocal
+ $defaults.runAttempt=ConvertTo-BusinessOSRunNumber ([string]$defaults.runAttempt) runAttempt $isLocal
+ if($isLocal){if($defaults.runId-ne 0-or$defaults.runAttempt-ne 0){throw 'Local runId and runAttempt must equal zero'}}elseif($defaults.runId-lt 1-or$defaults.runAttempt-lt 1){throw 'GitHub Actions runId and runAttempt must be positive'}
+ [pscustomobject]$defaults
+}
+function Write-BusinessOSCiEvidenceFallback{
+ [CmdletBinding()]param([Parameter(Mandatory)][ValidateSet('cross-platform','windows')][string]$Gate,[Parameter(Mandatory)][string]$Root,[Parameter(Mandatory)][string]$FailureStage,[Parameter(Mandatory)][string]$FailureMessage,[Parameter(Mandatory)][string]$GeneratorError,[Parameter(Mandatory)][string]$StartedAtUtc,[string]$LastCompletedStage='none',[string]$FormatStatus='NOT_RUN',[string]$BuildStatus='NOT_RUN')
+ $now=[DateTimeOffset]::UtcNow;$start=[DateTimeOffset]::Parse($StartedAtUtc,[Globalization.CultureInfo]::InvariantCulture)
+ $sha=(& git -C $Root rev-parse HEAD).Trim();$tree=(& git -C $Root show -s --format=%T $sha).Trim();$actions=[bool]$env:GITHUB_ACTIONS
+ $dotnetVersion=(Get-Content (Join-Path $Root 'eng/environment.lock.json') -Raw|ConvertFrom-Json).dotnetSdk
+ $hasGateFailure=$FailureStage-ne'none'-and$FailureMessage-ne'none'
+ $effectiveStage=if($hasGateFailure){$FailureStage}else{'summary-generation'};$effectiveMessage=if($hasGateFailure){$FailureMessage}else{"Summary generation failed: $GeneratorError"}
+ $values=@{gateName=$Gate;gateStatus='FAIL';generatedAtUtc=$now.ToString('o');startedAtUtc=$start.ToString('o');completedAtUtc=$now.ToString('o');durationSeconds=[math]::Max(0,[math]::Round(($now-$start).TotalSeconds,3));lastCompletedStage=$LastCompletedStage;formatStatus=$FormatStatus;buildStatus=$BuildStatus;checkoutKind=if($actions){if($env:GITHUB_EVENT_NAME-eq'pull_request'){'pull-request-merge'}else{'branch-head'}}else{'local'};repository=if($env:GITHUB_REPOSITORY){$env:GITHUB_REPOSITORY}else{'local'};eventName=if($env:GITHUB_EVENT_NAME){$env:GITHUB_EVENT_NAME}else{'local'};workflowName=if($env:GITHUB_WORKFLOW){$env:GITHUB_WORKFLOW}else{'local'};runId=$env:GITHUB_RUN_ID;runAttempt=$env:GITHUB_RUN_ATTEMPT;jobKey=if($env:GITHUB_JOB){$env:GITHUB_JOB}else{$Gate};commitSha=$sha;commitTreeSha=$tree;runnerOs=if($env:RUNNER_OS){$env:RUNNER_OS}else{[Runtime.InteropServices.RuntimeInformation]::OSDescription};runnerArch=if($env:RUNNER_ARCH){$env:RUNNER_ARCH}else{[Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()};runnerImage=if($env:ImageOS){$env:ImageOS}else{'local'};dotnetVersion=$dotnetVersion;powershellVersion=$PSVersionTable.PSVersion.ToString();warnings=[string[]]@("Summary generator error: $GeneratorError");errors=[string[]]@($effectiveMessage);failure=[ordered]@{stage=$effectiveStage;message=$effectiveMessage;diagnosticFiles=[string[]]@()}}
+ $summary=New-BusinessOSCiEvidenceSummary $values;$json=$summary|ConvertTo-Json -Depth 30;Test-BusinessOSCiEvidence ($json|ConvertFrom-Json -Depth 30)|Out-Null;$path=Join-Path $Root ".cache/ci-evidence-source/$Gate/summary.json";New-Item -ItemType Directory -Force (Split-Path $path)|Out-Null;$json|Set-Content $path -Encoding utf8NoBOM;$path
+}
 function Assert-Boolean($Object,[string]$Name){if($Object.$Name-isnot[bool]){throw "$Name must be a boolean"}}
 function Assert-StringArray($Value,[string]$Name,[switch]$NonEmpty,[switch]$Unique){if($Value-isnot[object[]]){throw "$Name must be an array"};foreach($v in $Value){if($v-isnot[string]-or[string]::IsNullOrWhiteSpace($v)){throw "$Name entries must be non-empty strings"}};if($NonEmpty-and$Value.Count-eq 0){throw "$Name must not be empty"};if($Unique-and@($Value|Select-Object -Unique).Count-ne$Value.Count){throw "$Name must contain unique values"}}
 function Test-BusinessOSScenario($Scenario){

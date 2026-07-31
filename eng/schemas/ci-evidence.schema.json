@@ -39,6 +39,40 @@
     "smoke",
     "failure"
   ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "checkoutKind": {
+            "const": "local"
+          }
+        },
+        "required": [
+          "checkoutKind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "runId": {
+            "const": 0
+          },
+          "runAttempt": {
+            "const": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "runId": {
+            "minimum": 1
+          },
+          "runAttempt": {
+            "minimum": 1
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "schemaVersion": {
       "const": 1
@@ -60,16 +94,12 @@
       "minLength": 1
     },
     "runId": {
-      "type": [
-        "string",
-        "integer"
-      ]
+      "type": "integer",
+      "minimum": 0
     },
     "runAttempt": {
-      "type": [
-        "string",
-        "integer"
-      ]
+      "type": "integer",
+      "minimum": 0
     },
     "jobKey": {
       "type": "string",

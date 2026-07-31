@@ -94,12 +94,18 @@
       "minLength": 1
     },
     "runId": {
-      "type": "integer",
-      "minimum": 0
+      "type": [
+        "string",
+        "integer",
+        "null"
+      ]
     },
     "runAttempt": {
-      "type": "integer",
-      "minimum": 0
+      "type": [
+        "string",
+        "integer",
+        "null"
+      ]
     },
     "jobKey": {
       "type": "string",
@@ -536,5 +542,531 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "checkoutKind": {
+            "const": "pull-request-merge"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "pullRequestNumber": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pullRequestHeadSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "pullRequestMergeSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "runId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "runAttempt": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "checkoutKind": {
+            "const": "local"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "pullRequestNumber": {
+            "type": "null"
+          },
+          "pullRequestHeadSha": {
+            "type": "null"
+          },
+          "pullRequestMergeSha": {
+            "type": "null"
+          },
+          "runId": {
+            "type": "null"
+          },
+          "runAttempt": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "checkoutKind": {
+            "const": "branch-head"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "runAttempt": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "migrations": {
+            "properties": {
+              "status": {
+                "const": "NOT_RUN"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "migrations": {
+            "properties": {
+              "pendingModelChanges": {
+                "type": "null"
+              },
+              "newMigrationCreated": {
+                "type": "null"
+              },
+              "snapshotModified": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "migrations": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "migrations": {
+            "properties": {
+              "pendingModelChanges": {
+                "const": false
+              },
+              "newMigrationCreated": {
+                "const": false
+              },
+              "snapshotModified": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "checkoutKind": {
+            "const": "branch-head"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "pullRequestNumber": {
+            "type": "null"
+          },
+          "pullRequestHeadSha": {
+            "type": "null"
+          },
+          "pullRequestMergeSha": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "gateName": {
+            "const": "windows"
+          },
+          "gateStatus": {
+            "const": "PASS"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "smoke": {
+            "properties": {
+              "requiredScenarioCount": {
+                "const": 5
+              },
+              "executedScenarioCount": {
+                "const": 5
+              },
+              "passedScenarioCount": {
+                "const": 5
+              },
+              "failedScenarioCount": {
+                "const": 0
+              },
+              "scenarios": {
+                "type": "array",
+                "minItems": 5,
+                "maxItems": 5,
+                "items": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "const": "PASS"
+                        },
+                        "stableSamplesRequired": {
+                          "const": 5
+                        },
+                        "stableSamplesObserved": {
+                          "const": 5
+                        },
+                        "stableWindowStatePassed": {
+                          "const": true
+                        },
+                        "exited": {
+                          "const": true
+                        },
+                        "exitCode": {
+                          "const": 0
+                        }
+                      }
+                    },
+                    {
+                      "oneOf": [
+                        {
+                          "properties": {
+                            "name": {
+                              "const": "Ready"
+                            },
+                            "closeDispatchMethod": {
+                              "const": "UIAutomation.WindowPattern.Close"
+                            },
+                            "shutdownMethod": {
+                              "const": "CloseMainWindow"
+                            },
+                            "finalWindowCount": {
+                              "const": 1
+                            },
+                            "finalMainWindowCount": {
+                              "const": 1
+                            },
+                            "finalFailureWindowCount": {
+                              "const": 0
+                            },
+                            "finalRecoveryWindowCount": {
+                              "const": 0
+                            },
+                            "fixturePrepared": {
+                              "const": false
+                            },
+                            "recoveryOrigin": {
+                              "const": "None"
+                            }
+                          }
+                        },
+                        {
+                          "properties": {
+                            "name": {
+                              "const": "PersistenceFailureThenReady"
+                            },
+                            "closeDispatchMethod": {
+                              "const": "UIAutomation.WindowPattern.Close"
+                            },
+                            "shutdownMethod": {
+                              "const": "CloseMainWindow"
+                            },
+                            "finalWindowCount": {
+                              "const": 1
+                            },
+                            "finalMainWindowCount": {
+                              "const": 1
+                            },
+                            "finalFailureWindowCount": {
+                              "const": 0
+                            },
+                            "finalRecoveryWindowCount": {
+                              "const": 0
+                            },
+                            "fixturePrepared": {
+                              "const": false
+                            },
+                            "recoveryOrigin": {
+                              "const": "None"
+                            }
+                          }
+                        },
+                        {
+                          "properties": {
+                            "name": {
+                              "const": "PersistenceFailure"
+                            },
+                            "fixturePrepared": {
+                              "const": false
+                            },
+                            "recoveryOrigin": {
+                              "const": "None"
+                            },
+                            "finalWindowCount": {
+                              "const": 1
+                            },
+                            "finalMainWindowCount": {
+                              "const": 0
+                            },
+                            "finalFailureWindowCount": {
+                              "const": 1
+                            },
+                            "finalRecoveryWindowCount": {
+                              "const": 0
+                            }
+                          },
+                          "allOf": [
+                            {
+                              "oneOf": [
+                                {
+                                  "properties": {
+                                    "closeDispatchMethod": {
+                                      "const": "CloseButton"
+                                    },
+                                    "shutdownMethod": {
+                                      "const": "CloseButton"
+                                    }
+                                  }
+                                },
+                                {
+                                  "properties": {
+                                    "closeDispatchMethod": {
+                                      "const": "UIAutomation.WindowPattern.Close"
+                                    },
+                                    "shutdownMethod": {
+                                      "const": "CloseMainWindow"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "properties": {
+                            "name": {
+                              "const": "RecoveryFromReady"
+                            },
+                            "closeDispatchMethod": {
+                              "const": "UIAutomation.WindowPattern.Close"
+                            },
+                            "shutdownMethod": {
+                              "const": "CloseMainWindow"
+                            },
+                            "finalWindowCount": {
+                              "const": 1
+                            },
+                            "finalMainWindowCount": {
+                              "const": 1
+                            },
+                            "finalFailureWindowCount": {
+                              "const": 0
+                            },
+                            "finalRecoveryWindowCount": {
+                              "const": 0
+                            },
+                            "fixturePrepared": {
+                              "const": true
+                            },
+                            "recoveryOrigin": {
+                              "const": "MainWindow"
+                            },
+                            "recoveryOpened": {
+                              "const": true
+                            },
+                            "catalogLoaded": {
+                              "const": true
+                            },
+                            "restoreDisabledWithoutSelection": {
+                              "const": true
+                            },
+                            "confirmationCancelPassed": {
+                              "const": true
+                            },
+                            "backNavigationPassed": {
+                              "const": true
+                            },
+                            "restoreStarted": {
+                              "const": true
+                            },
+                            "restoreSucceeded": {
+                              "const": true
+                            },
+                            "postRestoreStartupSucceeded": {
+                              "const": true
+                            },
+                            "validBackupCount": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "invalidBackupCount": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "fixtureValidation": {
+                              "const": "PASS"
+                            }
+                          }
+                        },
+                        {
+                          "properties": {
+                            "name": {
+                              "const": "RecoveryFromStartupFailure"
+                            },
+                            "closeDispatchMethod": {
+                              "const": "UIAutomation.WindowPattern.Close"
+                            },
+                            "shutdownMethod": {
+                              "const": "CloseMainWindow"
+                            },
+                            "finalWindowCount": {
+                              "const": 1
+                            },
+                            "finalMainWindowCount": {
+                              "const": 1
+                            },
+                            "finalFailureWindowCount": {
+                              "const": 0
+                            },
+                            "finalRecoveryWindowCount": {
+                              "const": 0
+                            },
+                            "fixturePrepared": {
+                              "const": true
+                            },
+                            "recoveryOrigin": {
+                              "const": "StartupFailure"
+                            },
+                            "recoveryOpened": {
+                              "const": true
+                            },
+                            "catalogLoaded": {
+                              "const": true
+                            },
+                            "restoreDisabledWithoutSelection": {
+                              "const": true
+                            },
+                            "confirmationCancelPassed": {
+                              "const": true
+                            },
+                            "backNavigationPassed": {
+                              "const": true
+                            },
+                            "restoreStarted": {
+                              "const": true
+                            },
+                            "restoreSucceeded": {
+                              "const": true
+                            },
+                            "postRestoreStartupSucceeded": {
+                              "const": true
+                            },
+                            "validBackupCount": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "invalidBackupCount": {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            "fixtureValidation": {
+                              "const": "PASS"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "name": {
+                          "const": "Ready"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "name": {
+                          "const": "PersistenceFailure"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "name": {
+                          "const": "PersistenceFailureThenReady"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "name": {
+                          "const": "RecoveryFromReady"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "name": {
+                          "const": "RecoveryFromStartupFailure"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

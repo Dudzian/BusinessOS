@@ -118,7 +118,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
     $entryId = if ($Origin -eq 'MainWindow') { 'OpenRecoveryFromMainButton' } else { 'OpenRecoveryFromFailureButton' }
     Invoke-AutomationIdButton $InitialRoot $entryId
     $recovery = Wait-RecoveryWindow $Process
-    Add-Content $diagnostics 'RecoveryOpened: True';$script:recoveryOpened=$true;$script:stableSamplesObserved=5
+    Add-Content $diagnostics 'RecoveryOpened: True';$script:recoveryOpened=$true
     Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Recovery catalog did not load.' -Condition {
         $refresh = Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton'
         return $null -ne $refresh -and $refresh.Current.IsEnabled
@@ -175,7 +175,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
     $validationJson = dotnet run --project tests/BusinessOS.RecoverySmokeFixture/BusinessOS.RecoverySmokeFixture.csproj -c $Configuration --no-build -- validate-restored --root $artifactRoot | Select-Object -Last 1
     $validation = $validationJson | ConvertFrom-Json
     if ($validation.CompanyDisplayName -ne 'Selected Backup Company' -or $validation.QuickCheck -ne 'ok') { throw 'Fixture validation failed.' }
-    Add-Content $diagnostics "RestoreSucceeded: True`nPostRestoreStartupSucceeded: True`nFixtureValidation: PASS`nFinalWindowCount: 1`nFinalMainWindowCount: 1`nFinalFailureWindowCount: 0`nFinalRecoveryWindowCount: 0"
+    Add-Content $diagnostics "RestoreSucceeded: True`nPostRestoreStartupSucceeded: True`nFixtureValidation: PASS"
     $script:restoreSucceeded=$true;$script:postRestoreStartupSucceeded=$true;$script:fixtureValidation='PASS'
     return $main
 }
@@ -298,6 +298,7 @@ try {
             if (-not $process.WaitForExit(10000)) { throw 'Close button did not terminate BusinessOS.Desktop.' }
             if ($process.ExitCode -ne 0) { throw "Close button produced exit code $($process.ExitCode)." }
             $closedByButton = $true
+            $closeDispatchMethod = 'CloseButton'
         }
     }
     }

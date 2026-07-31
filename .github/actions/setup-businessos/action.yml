@@ -18,8 +18,11 @@ runs:
     - name: Setup local environment
       shell: pwsh
       run: |
-        New-Item -ItemType Directory -Force .cache | Out-Null
-        ./eng/setup-environment.ps1 2>&1 | Tee-Object .cache/setup.log
+        $setupLog = Join-Path (Get-Location) '.cache/setup.log'
+        New-Item -ItemType Directory -Force (Split-Path $setupLog) | Out-Null
+        Set-Content -LiteralPath $setupLog -Value '' -NoNewline
+        & ./eng/setup-environment.ps1 *>&1 |
+          Tee-Object -FilePath $setupLog -Append
     - name: Export resolved environment to later steps
       shell: pwsh
       run: |

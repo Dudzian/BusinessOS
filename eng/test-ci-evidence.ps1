@@ -45,6 +45,12 @@ Pass 'normal verifier runs contract tests and Windows verifier uses fallback' {
  if($crossSource-notmatch'Run\s+ci-evidence-contract-tests\s+\{Invoke-CheckedCommand\s+pwsh[^\r\n]*test-ci-evidence\.ps1'){throw 'normal cross-platform verifier does not run CI evidence contract tests'}
  if($windowsSource-notmatch'Write-BusinessOSCiEvidenceFallback\s+-Gate\s+windows'){throw 'Windows verifier does not invoke the shared fallback'}
 }
+Pass 'setup action captures all streams without masking failures' {
+ $output=& pwsh -NoProfile -File "$PSScriptRoot/test-setup-action.ps1" 2>&1;if($LASTEXITCODE-ne 0){throw ($output-join[Environment]::NewLine)}
+}
+Pass 'real Windows PASS summary is valid and stageable' {
+ $output=& pwsh -NoProfile -File "$PSScriptRoot/test-windows-ci-summary.ps1" 2>&1;if($LASTEXITCODE-ne 0){throw ($output-join[Environment]::NewLine)}
+}
 Pass 'forced generator failure creates valid stageable fallback evidence' {
  $root=(Resolve-Path "$PSScriptRoot/..").Path;$started=[DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('o');$generatorError=$null;$old=$env:BUSINESSOS_TEST_FORCE_SUMMARY_FAILURE
  try{$env:BUSINESSOS_TEST_FORCE_SUMMARY_FAILURE='1';try{& "$PSScriptRoot/write-ci-summary.ps1" -Gate cross-platform -Status FAIL -FailureStage tests -FailureMessage 'original gate failure' -LastCompletedStage build -StartedAtUtc $started}catch{$generatorError="$($_.Exception.Message)"}}finally{$env:BUSINESSOS_TEST_FORCE_SUMMARY_FAILURE=$old}

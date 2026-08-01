@@ -40,5 +40,9 @@ public sealed class CompanyConfiguration : IEntityTypeConfiguration<Company>
         builder.HasIndex(company => company.Status).HasDatabaseName("ix_companies_status");
         builder.HasIndex(company => company.IsDeleted).HasDatabaseName("ix_companies_is_deleted");
         builder.HasIndex(company => new { company.OrganizationId, company.IsDeleted }).HasDatabaseName("ix_companies_organization_id_is_deleted");
+        builder.HasIndex(company => new { company.OrganizationId, company.TaxIdentificationNumber })
+            .IsUnique()
+            .HasFilter("is_deleted = 0 AND tax_identification_number IS NOT NULL")
+            .HasDatabaseName("ux_companies_organization_tax_id_active");
     }
 }

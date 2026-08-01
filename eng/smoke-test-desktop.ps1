@@ -69,6 +69,74 @@ function Invoke-AutomationIdButton($Root, [string]$AutomationId) {
     if ($null -eq $button) { throw "UI Automation button was not found: $AutomationId" }
     $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
+function Set-AutomationValue($Root, [string]$AutomationId, [string]$Value) {
+    $element = Get-AutomationIdElement $Root $AutomationId
+    if ($null -eq $element) { throw "UI Automation input was not found: $AutomationId" }
+    $element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($Value)
+}
+function Select-ContainingListItem($Element) {
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $current = $Element
+    while ($null -ne $current -and $current.Current.ControlType -ne [System.Windows.Automation.ControlType]::ListItem) { $current = $walker.GetParent($current) }
+    if ($null -eq $current) { throw 'Company list item could not be selected.' }
+    $current.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+}
+function Test-Visible($Element) { $null -ne $Element -and -not $Element.Current.IsOffscreen }
+function Get-NamedElements($Root, [string]$Name) {
+    $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $Name)
+    @($Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
+}
+function Invoke-CompaniesCrudSmoke($Main) {
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Companies UI did not reach its initial empty ready state.' -Condition {
+        $add = Get-AutomationIdElement $Main 'AddCompanyButton'
+        $list = Get-AutomationIdElement $Main 'CompaniesList'
+        $empty = Get-AutomationIdElement $Main 'CompaniesEmptyState'
+        return $null -ne $add -and $add.Current.IsEnabled -and $null -ne $list -and (Test-Visible $empty)
+    }
+    Add-Content $diagnostics 'CompaniesCrud: empty-state confirmed'
+    Invoke-AutomationIdButton $Main 'AddCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company editor did not open.' -Condition { $null -ne (Get-AutomationIdElement $Main 'CompanyEditorPanel') }
+    Set-AutomationValue $Main 'CompanyLegalNameInput' 'BusinessOS Smoke Legal'
+    Set-AutomationValue $Main 'CompanyDisplayNameInput' 'BusinessOS Smoke'
+    Set-AutomationValue $Main 'CompanyTaxIdInput' '5260250995'
+    Set-AutomationValue $Main 'CompanyCountryInput' 'PL'
+    Set-AutomationValue $Main 'CompanyCurrencyInput' 'PLN'
+    Set-AutomationValue $Main 'CompanyTimeZoneInput' 'Europe/Warsaw'
+    Invoke-AutomationIdButton $Main 'SaveCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Created company did not stabilize in the list.' -Condition {
+        $list = Get-AutomationIdElement $Main 'CompaniesList'; $editor = Get-AutomationIdElement $Main 'CompanyEditorPanel'; $empty = Get-AutomationIdElement $Main 'CompaniesEmptyState'
+        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 1 -and -not (Test-Visible $editor) -and -not (Test-Visible $empty)
+    }
+    Add-Content $diagnostics 'CompaniesCrud: create PASS'
+    $list = Get-AutomationIdElement $Main 'CompaniesList'; $item = (Get-NamedElements $list 'BusinessOS Smoke')[0]
+    Select-ContainingListItem $item
+    Invoke-AutomationIdButton $Main 'EditCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company edit form did not open.' -Condition { $null -ne (Get-AutomationIdElement $Main 'CompanyDisplayNameInput') }
+    Set-AutomationValue $Main 'CompanyDisplayNameInput' 'BusinessOS Smoke Updated'
+    Invoke-AutomationIdButton $Main 'SaveCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated company name did not stabilize in the list.' -Condition {
+        $list = Get-AutomationIdElement $Main 'CompaniesList'; $editor = Get-AutomationIdElement $Main 'CompanyEditorPanel'
+        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 0 -and (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 1 -and -not (Test-Visible $editor)
+    }
+    Add-Content $diagnostics 'CompaniesCrud: update PASS'
+    $list = Get-AutomationIdElement $Main 'CompaniesList'; $item = (Get-NamedElements $list 'BusinessOS Smoke Updated')[0]
+    Select-ContainingListItem $item
+    Invoke-AutomationIdButton $Main 'ArchiveCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Archive confirmation did not open.' -Condition {
+        $dialog = Get-AutomationIdElement $Main 'ArchiveCompanyDialog'
+        if (-not (Test-Visible $dialog)) { return $false }
+        $dialogText = @($dialog.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }) -join ' | '
+        return $dialogText.Contains('BusinessOS Smoke Updated') -and $null -ne (Get-AutomationIdElement $dialog 'ConfirmArchiveCompanyButton')
+    }
+    $dialog = Get-AutomationIdElement $Main 'ArchiveCompanyDialog'
+    Invoke-AutomationIdButton $dialog 'ConfirmArchiveCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Archive confirmation did not close.' -Condition { -not (Test-Visible (Get-AutomationIdElement $Main 'ArchiveCompanyDialog')) }
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Archived company remained visible or empty state did not return.' -Condition {
+        $list = Get-AutomationIdElement $Main 'CompaniesList'; $empty = Get-AutomationIdElement $Main 'CompaniesEmptyState'; $recovery = Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton'
+        return (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 0 -and (Test-Visible $empty) -and $null -ne $recovery -and $recovery.Current.IsEnabled
+    }
+    Add-Content $diagnostics 'CompaniesCrud: archive and empty-state PASS'
+}
 function Wait-RecoveryWindow($Process) {
     Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Recovery window did not become stable.' -Condition {
         $windows = Get-ProcessWindows $Process.Id
@@ -80,7 +148,7 @@ function Wait-RecoveryWindow($Process) {
 function Wait-ReadyWindow($Process) {
     Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Main window did not become stable.' -Condition {
         $windows = Get-ProcessWindows $Process.Id
-        $main = @($windows | Where-Object { $_.Current.Name -eq 'BusinessOS' -and $null -ne (Get-NamedElement $_ 'Baza danych jest gotowa') })
+        $main = @($windows | Where-Object { $_.Current.Name -eq 'BusinessOS' -and $null -ne (Get-NamedElement $_ 'Baza danych jest gotowa') -and $null -ne (Get-AutomationIdElement $_ 'CompaniesList') -and $null -ne (Get-AutomationIdElement $_ 'AddCompanyButton') -and $null -ne (Get-AutomationIdElement $_ 'OpenRecoveryFromMainButton') })
         $failure = @($windows | Where-Object { $null -ne (Get-NamedElement $_ 'Ponów próbę') })
         $recovery = @($windows | Where-Object { $null -ne (Get-AutomationIdElement $_ 'RecoveryHeading') })
         return $windows.Count -eq 1 -and $main.Count -eq 1 -and $failure.Count -eq 0 -and $recovery.Count -eq 0
@@ -231,13 +299,14 @@ try {
         $name = $element.Current.Name
         if (-not [string]::IsNullOrWhiteSpace($name)) { $texts.Add($name) }
     }
-    $requiredTexts = if ($Scenario -eq 'Ready') { @('BusinessOS','Foundation','Fundament aplikacji został uruchomiony','Baza danych jest gotowa') } else { @('Nie udało się przygotować bazy danych','Ponów próbę','Zamknij','DiagnosticId') }
+    $requiredTexts = if ($Scenario -eq 'Ready') { @('BusinessOS','Firmy','Baza danych jest gotowa') } else { @('Nie udało się przygotować bazy danych','Ponów próbę','Zamknij','DiagnosticId') }
     foreach ($required in $requiredTexts) {
         if (-not ($texts -contains $required)) { throw "UI Automation did not find required element: $required." }
     }
     if ($Scenario -eq 'Ready') {
         $databasePath = $env:BusinessOS__Persistence__DatabasePath
         if (-not (Test-Path $databasePath) -or (Get-Item $databasePath).Length -le 0) { throw 'Ready SQLite database was not created.' }
+        Invoke-CompaniesCrudSmoke $root
     } else {
         if ($texts -contains 'Foundation') { throw 'Functional main window opened during persistence failure.' }
         $forbiddenText = $texts -join ' | '

@@ -35,3 +35,7 @@ The Desktop recovery window consumes only the AppHost recovery facade and presen
 The user must select a valid backup and confirm that the current database will be replaced. The restore engine first attempts a safety backup of the live database. A successful restore is followed by the existing Block 2B1 startup coordinator, which inspects the restored database and applies pending migrations before a fresh main window is shown. Failures expose only a safe message and correlated `DiagnosticId`; paths, exception names, connection strings, and infrastructure codes remain in diagnostic logs.
 
 CI evidence and Windows-first merge requirements are documented in [the CI policy](ci-policy.md).
+
+## Block 2C Companies CRUD persistence
+
+The Application layer owns CRUD contracts and safe operation results; Infrastructure implements the store with asynchronous EF Core operations. Reads are no-tracking, edits are tracked, organization-scoped, and `EntityVersion` remains the optimistic concurrency token. A filtered unique SQLite index on organization and non-null tax ID protects active records, including races; archived rows are excluded, so their tax ID can be reused. Details are in [Companies CRUD](companies-crud.md).

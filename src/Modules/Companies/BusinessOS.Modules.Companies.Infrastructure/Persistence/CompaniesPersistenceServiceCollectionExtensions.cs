@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using BusinessOS.Modules.Companies.Application;
 
 namespace BusinessOS.Modules.Companies.Infrastructure.Persistence;
 
@@ -18,6 +19,7 @@ public static class CompaniesPersistenceServiceCollectionExtensions
         services.AddDbContextFactory<CompaniesDbContext>(builder => builder.UseSqlite(
             options.BuildConnectionString(),
             sqlite => sqlite.MigrationsHistoryTable("__EFMigrationsHistory_Companies")));
+        services.AddTransient<ICompaniesStore, CompaniesStore>();
         services.AddSingleton<ICompaniesDatabaseInitializer, CompaniesDatabaseInitializer>();
         services.AddSingleton<ICompaniesMigrationInspector, CompaniesMigrationInspector>();
         services.AddSingleton<ICompaniesDatabaseBackupService, CompaniesDatabaseBackupService>();

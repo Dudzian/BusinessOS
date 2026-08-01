@@ -51,7 +51,10 @@ public partial class App : Application
         var activeHost = hostStartup.Host;
         if (activeHost is null || !hostStartup.HostStarted) return;
 
-        var mainWindow = new MainWindow(ActivatorUtilities.CreateInstance<MainViewModel>(activeHost.Services), () => ShowRecovery(RecoveryOrigin.MainWindow));
+        var mainWindow = new MainWindow(
+            ActivatorUtilities.CreateInstance<MainViewModel>(activeHost.Services),
+            ActivatorUtilities.CreateInstance<CompaniesViewModel>(activeHost.Services),
+            () => ShowRecovery(RecoveryOrigin.MainWindow));
         if (Volatile.Read(ref shutdownStarted) != 0 ||
             !ReferenceEquals(activeHost, hostStartup.Host) ||
             !hostStartup.HostStarted)

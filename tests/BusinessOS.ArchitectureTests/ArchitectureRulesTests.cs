@@ -10,6 +10,32 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Companies_application_contracts_and_desktop_boundary_do_not_leak_persistence_or_domain_types()
+    {
+        var application = typeof(BusinessOS.Modules.Companies.Application.ICompaniesCrudService).Assembly;
+        Types.InAssembly(application).ShouldNot().HaveDependencyOnAny("Microsoft.EntityFrameworkCore", "Microsoft.Data.Sqlite", "BusinessOS.Modules.Companies.Infrastructure").GetResult().IsSuccessful.Should().BeTrue();
+
+        var contractTypes = new[]
+        {
+            typeof(BusinessOS.Modules.Companies.Application.CompanyListItem),
+            typeof(BusinessOS.Modules.Companies.Application.CompanyDetails),
+            typeof(BusinessOS.Modules.Companies.Application.CreateCompanyRequest),
+            typeof(BusinessOS.Modules.Companies.Application.UpdateCompanyRequest),
+            typeof(BusinessOS.Modules.Companies.Application.ArchiveCompanyRequest),
+        };
+        contractTypes.SelectMany(type => type.GetProperties()).Select(property => property.PropertyType)
+            .Should().NotContain(type => (type.Namespace != null && type.Namespace.Contains("Companies.Domain", StringComparison.Ordinal)) ||
+                typeof(Exception).IsAssignableFrom(type) || type.Name.Contains("DbContext", StringComparison.Ordinal) ||
+                type.Name.Contains("IQueryable", StringComparison.Ordinal));
+
+        var root = FindRepositoryRoot();
+        var desktopProject = LoadProjectReferences(root)["src/BusinessOS.Desktop/BusinessOS.Desktop.csproj"];
+        desktopProject.Should().NotContain(reference => reference.Contains("Companies.Domain", StringComparison.Ordinal) || reference.Contains("Companies.Infrastructure", StringComparison.Ordinal));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs")).Should().NotContain("BusinessOS.Modules.Companies.Domain");
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/CompaniesViewModel.cs")).Should().NotContain("BusinessOS.Modules.Companies.Domain");
+    }
+
+    [Fact]
     public void AppHost_recovery_DTOs_do_not_expose_sensitive_technical_properties()
     {
         string[] forbidden = ["Path", "DatabasePath", "BackupPath", "SafetyBackupPath", "Exception", "StackTrace", "ConnectionString"];

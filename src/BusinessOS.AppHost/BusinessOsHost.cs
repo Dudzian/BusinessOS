@@ -5,6 +5,7 @@ using BusinessOS.Modules.Companies.Application;
 using BusinessOS.Modules.Companies.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using BusinessOS.BuildingBlocks.Domain.Ids;
 
 namespace BusinessOS.AppHost;
 
@@ -16,6 +17,8 @@ public static class BusinessOsHost
             .ConfigureServices((context, services) =>
             {
                 services.AddSingleton(ProductInfo.FromAssembly(productAssembly));
+                services.AddSingleton<ICompaniesExecutionContext, LocalCompaniesExecutionContext>();
+                services.AddSingleton(TimeProvider.System);
                 services.AddCompaniesModule();
                 services.AddCompaniesPersistence(options =>
                 {
@@ -47,4 +50,11 @@ public static class BusinessOsHost
 
         return value;
     }
+}
+
+// Replaced by identity/workspace context when multi-user support is introduced.
+internal sealed class LocalCompaniesExecutionContext : ICompaniesExecutionContext
+{
+    public OrganizationId OrganizationId { get; } = new(new Guid("11111111-1111-1111-1111-111111111111"));
+    public UserId UserId { get; } = new(new Guid("22222222-2222-2222-2222-222222222222"));
 }

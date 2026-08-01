@@ -4,7 +4,7 @@ BusinessOS is a local-first Windows desktop application foundation.
 
 ## Persistence blocks
 
-**Block 2A — persistence foundation** introduced the Companies SQLite model, generated EF migration, nullable foreign tax IDs, and Polish NIP checksum validation. **Block 2B1 — safe startup and pre-migration backup** adds a coordinated startup sequence: inspect migrations, create and verify an online backup when an existing database needs migration, migrate, and only then open the main window.
+**Block 2A — persistence foundation** introduced the Companies SQLite model, generated EF migration, nullable foreign tax IDs, and Polish NIP checksum validation. **Block 2C — Companies application CRUD** adds create, list, details, edit, status changes and soft-delete archiving through domain, application, SQLite infrastructure and WinUI. See [Companies CRUD](docs/companies-crud.md).
 
 On first startup no backup is created; an up-to-date database is opened without a backup or migration. Backup or migration failures lead to a safe retry/close window with a `DiagnosticId`, while technical exception details remain in logs. Blocks 2B2a and 2B2b provide the safe Companies restore engine, backup catalog, and recovery UI. See [persistence documentation](docs/persistence.md).
 
@@ -60,7 +60,7 @@ dotnet run --project src/BusinessOS.Desktop/BusinessOS.Desktop.csproj -c Debug
 ```
 
 Expected window title: `BusinessOS`.
-Expected visible text: `BusinessOS`, `Foundation`, `Fundament aplikacji został uruchomiony` and the assembly metadata version. The Block 1 desktop app is unpackaged (`WindowsPackageType=None`) and intentionally does not include MSIX or installer assets.
+Expected visible elements include `BusinessOS`, `Baza danych jest gotowa`, the `Firmy` section, `CompaniesList`, `AddCompanyButton`, and `OpenRecoveryFromMainButton`. The desktop app is unpackaged (`WindowsPackageType=None`) and intentionally does not include MSIX or installer assets.
 
 ## Current scope
 
@@ -69,7 +69,7 @@ Implemented in this block:
 - solution membership for all source and test projects;
 - modular project layout;
 - composition root library used by the WinUI app;
-- minimal WinUI 3 window and `MainViewModel`;
+- WinUI 3 Companies list/editor and testable `CompaniesViewModel`;
 - domain primitives and basic company/project domain models;
 - unit tests for current domain primitives and domain entities;
 - architecture tests for domain boundaries and forbidden production dependencies;
@@ -80,7 +80,6 @@ Deferred to later blocks:
 
 - audit log;
 - background jobs and durable queues;
-- Companies CRUD UI;
 - BusinessProjects persistence and UI;
 - Budgeting persistence and UI;
 - MSIX installer;
@@ -93,7 +92,7 @@ Deferred to later blocks:
 - **Block 2A — Companies SQLite persistence foundation**: EF Core 10 + SQLite infrastructure for the Companies module, including `CompaniesDbContext`, explicit mapping, local migrations, integration tests, and migration tests.
 - **Block 2B2b — Companies recovery UI**: recovery is available from the main shell and safe persistence-startup failures. It lists only BusinessOS-managed backups, never accepts an arbitrary path or file picker selection, requires destructive-action confirmation, and reports safe messages with a `DiagnosticId`. After restore, Block 2B1 verifies the database and applies pending migrations.
 
-The default local database path is `%LocalAppData%/BusinessOS/Data/businessos.db`. It can be overridden with configuration key `BusinessOS:Persistence:DatabasePath`. Host construction only registers services; migrations are **not** automatically executed at application startup in Block 2A. Companies CRUD UI remains a later stage.
+The default local database path is `%LocalAppData%/BusinessOS/Data/businessos.db`. It can be overridden with configuration key `BusinessOS:Persistence:DatabasePath`. AppHost coordinates safe startup and migrations before opening the implemented Companies CRUD UI.
 
 Restore local tools with:
 
@@ -123,7 +122,7 @@ See [docs/persistence.md](docs/persistence.md) for persistence design notes.
 - Block 2B1 — complete
 - Block 2B2a — complete
 - Block 2B2b — complete
-- Block 2B3 engineering readiness — current block
-- Next: Companies application CRUD
+- Block 2B3 engineering readiness — complete
+- Block 2C Companies application CRUD — current/implemented
 
 BusinessOS uses the [Windows-first CI policy](docs/ci-policy.md). Gate evidence is staged under `artifacts/ci-evidence`, and CI can be audited read-only without GitHub CLI using `eng/audit-github-ci.ps1`.

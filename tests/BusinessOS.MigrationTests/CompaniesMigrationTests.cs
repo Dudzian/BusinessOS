@@ -86,7 +86,41 @@ public sealed class CompaniesMigrationTests : IDisposable
             "ix_companies_status",
             "ix_companies_is_deleted",
             "ix_companies_organization_id_is_deleted",
+            "ux_companies_organization_tax_id_active",
         });
+    }
+
+    [Fact]
+    public async Task Active_tax_id_index_has_expected_unique_columns_and_filter()
+    {
+        await Migrate();
+        await using var connection = new SqliteConnection(BuildTestConnectionString());
+        await connection.OpenAsync();
+        await using var list = connection.CreateCommand();
+        list.CommandText = "PRAGMA index_list('companies')";
+        await using var reader = await list.ExecuteReaderAsync();
+        var foundUnique = false;
+        while (await reader.ReadAsync())
+            if (reader.GetString(reader.GetOrdinal("name")) == "ux_companies_organization_tax_id_active") foundUnique = reader.GetInt32(reader.GetOrdinal("unique")) == 1;
+        foundUnique.Should().BeTrue();
+
+        (await QueryStrings("PRAGMA index_info('ux_companies_organization_tax_id_active')", "name"))
+            .Should().Equal("organization_id", "tax_identification_number");
+        var sql = (await QueryStrings("SELECT sql FROM sqlite_master WHERE type='index' AND name='ux_companies_organization_tax_id_active'", "sql")).Single();
+        sql.Should().Contain("is_deleted = 0 AND tax_identification_number IS NOT NULL");
+    }
+
+    [Fact]
+    public async Task Rolling_back_tax_id_migration_removes_only_its_index_and_reapplying_restores_it()
+    {
+        await using var db = CreateContext();
+        await db.Database.MigrateAsync();
+        var migrations = db.Database.GetMigrations().ToArray();
+        migrations.Should().ContainSingle(migration => migration.EndsWith("AddActiveCompanyTaxIdUniqueness", StringComparison.Ordinal));
+        await db.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync(migrations[^2]);
+        (await QueryStrings("PRAGMA index_list('companies')", "name")).Should().NotContain("ux_companies_organization_tax_id_active");
+        await db.Database.MigrateAsync();
+        (await QueryStrings("PRAGMA index_list('companies')", "name")).Should().Contain("ux_companies_organization_tax_id_active");
     }
 
     [Fact]

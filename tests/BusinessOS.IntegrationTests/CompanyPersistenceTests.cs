@@ -102,6 +102,7 @@ public sealed class CompanyPersistenceTests : IDisposable
         await Seed(company);
         await using var db = CreateContext();
         (await db.Companies.IgnoreQueryFilters().CountAsync()).Should().Be(1);
+        (await db.Companies.IgnoreQueryFilters().SingleAsync()).Status.Should().Be(CompanyStatus.Archived);
     }
 
     [Fact]
@@ -117,6 +118,41 @@ public sealed class CompanyPersistenceTests : IDisposable
         await first.SaveChangesAsync();
         secondCompany.Rename("Second", UserId.New(), DateTimeOffset.UtcNow.AddMinutes(1));
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => second.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Active_tax_id_is_unique_per_organization_but_reusable_after_soft_delete()
+    {
+        var organization = OrganizationId.New();
+        var first = CreateCompany(organization);
+        await Seed(first);
+        await using (var duplicate = CreateContext())
+        {
+            duplicate.Companies.Add(CreateCompany(organization));
+            await Assert.ThrowsAsync<DbUpdateException>(() => duplicate.SaveChangesAsync());
+        }
+
+        await using (var archive = CreateContext())
+        {
+            var loaded = await archive.Companies.SingleAsync();
+            loaded.SoftDelete(UserId.New(), DateTimeOffset.UtcNow);
+            await archive.SaveChangesAsync();
+        }
+
+        await using var reuse = CreateContext();
+        reuse.Companies.Add(CreateCompany(organization));
+        await reuse.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Same_tax_id_in_different_organizations_and_multiple_null_values_are_allowed()
+    {
+        await using var db = CreateContext();
+        await db.Database.MigrateAsync();
+        db.Companies.AddRange(CreateCompany(OrganizationId.New()), CreateCompany(OrganizationId.New()),
+            CreateForeignCompany(OrganizationId.New()), CreateForeignCompany(OrganizationId.New()));
+        await db.SaveChangesAsync();
+        (await db.Companies.CountAsync()).Should().Be(4);
     }
 
     [Fact]
@@ -172,8 +208,9 @@ public sealed class CompanyPersistenceTests : IDisposable
         }.ToString();
     }
 
-    private static Company CreateCompany() => Company.Create(
-        OrganizationId.New(),
+    private static Company CreateCompany() => CreateCompany(OrganizationId.New());
+    private static Company CreateCompany(OrganizationId organizationId) => Company.Create(
+        organizationId,
         "Legal",
         "Display",
         "5260250995",
@@ -182,6 +219,10 @@ public sealed class CompanyPersistenceTests : IDisposable
         "Europe/Warsaw",
         UserId.New(),
         DateTimeOffset.Parse("2026-07-24T09:00:00Z"));
+
+    private static Company CreateForeignCompany(OrganizationId organizationId) => Company.Create(
+        organizationId, "Foreign", "Foreign", null, "DE", new CurrencyCode("EUR"), "Europe/Berlin",
+        UserId.New(), DateTimeOffset.Parse("2026-07-24T09:00:00Z"));
 
     private IEnumerable<string> DatabaseFiles() => new[] { databasePath, databasePath + "-shm", databasePath + "-wal" };
 

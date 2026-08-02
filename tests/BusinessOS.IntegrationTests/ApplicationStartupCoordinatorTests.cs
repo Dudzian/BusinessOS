@@ -1,5 +1,6 @@
 using BusinessOS.AppHost;
 using BusinessOS.Modules.Companies.Infrastructure.Persistence;
+using BusinessOS.Modules.BusinessProjects.Infrastructure.Persistence;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +25,7 @@ public sealed class ApplicationStartupCoordinatorTests : IDisposable
         result.DatabaseWasCreated.Should().BeTrue();
         result.BackupCreated.Should().BeFalse();
         (await TableExists(DatabasePath, "companies")).Should().BeTrue();
+        (await TableExists(DatabasePath, "business_projects")).Should().BeTrue();
         Directory.Exists(BackupDirectory).Should().BeFalse();
     }
 
@@ -181,6 +183,7 @@ public sealed class ApplicationStartupCoordinatorTests : IDisposable
             options.MaxBackups = maxBackups;
             options.Pooling = false;
         });
+        services.AddBusinessProjectsPersistence(databasePath);
         services.AddSingleton(timeProvider);
         services.AddSingleton<IApplicationStartupCoordinator, ApplicationStartupCoordinator>();
         return services.BuildServiceProvider();

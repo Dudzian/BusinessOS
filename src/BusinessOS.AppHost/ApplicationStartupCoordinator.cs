@@ -1,4 +1,5 @@
 using BusinessOS.Modules.Companies.Infrastructure.Persistence;
+using BusinessOS.Modules.BusinessProjects.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 
 namespace BusinessOS.AppHost;
@@ -47,7 +48,8 @@ public sealed class ApplicationStartupCoordinator(
     ICompaniesMigrationInspector inspector,
     ICompaniesDatabaseBackupService backupService,
     ICompaniesDatabaseInitializer initializer,
-    ILogger<ApplicationStartupCoordinator> logger) : IApplicationStartupCoordinator
+    ILogger<ApplicationStartupCoordinator> logger,
+    IBusinessProjectsDatabaseLifecycle? businessProjects = null) : IApplicationStartupCoordinator
 {
     private readonly SemaphoreSlim initializationLock = new(1, 1);
 
@@ -69,10 +71,16 @@ public sealed class ApplicationStartupCoordinator(
                 return Failure(ApplicationStartupFailureCode.DatabaseInspectionFailed, "Nie udało się sprawdzić stanu bazy danych.", exception);
             }
 
-            if (state.DatabaseExists && !state.HasPendingMigrations)
+            BusinessProjectsMigrationState? projectsState = null;
+            try
             {
-                return ApplicationStartupResult.Success(false, false, null);
+                if (businessProjects is not null) projectsState = await businessProjects.InspectAsync(cancellationToken).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception exception) { return Failure(ApplicationStartupFailureCode.DatabaseInspectionFailed, "Nie udało się sprawdzić stanu bazy danych.", exception); }
+
+            var anyPending = state.HasPendingMigrations || projectsState?.HasPendingMigrations == true;
+            if (state.DatabaseExists && !anyPending) return ApplicationStartupResult.Success(false, false, null);
 
             string? backupPath = null;
             if (state.DatabaseExists)
@@ -104,7 +112,13 @@ public sealed class ApplicationStartupCoordinator(
                 logger.LogInformation("Starting Companies database migration.");
                 await initializer.InitializeAsync(cancellationToken).ConfigureAwait(false);
                 logger.LogInformation("Companies database migration completed.");
-                return ApplicationStartupResult.Success(!state.DatabaseExists, true, backupPath);
+                if (businessProjects is not null)
+                {
+                    logger.LogInformation("Starting BusinessProjects database migration.");
+                    await businessProjects.InitializeAsync(cancellationToken).ConfigureAwait(false);
+                    logger.LogInformation("BusinessProjects database migration completed.");
+                }
+                return ApplicationStartupResult.Success(!state.DatabaseExists, anyPending || !state.DatabaseExists, backupPath);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception exception)

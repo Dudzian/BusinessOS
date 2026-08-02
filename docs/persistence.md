@@ -39,3 +39,7 @@ CI evidence and Windows-first merge requirements are documented in [the CI polic
 ## Block 2C Companies CRUD persistence
 
 The Application layer owns CRUD contracts and safe operation results; Infrastructure implements the store with asynchronous EF Core operations. Reads are no-tracking, edits are tracked, organization-scoped, and `EntityVersion` remains the optimistic concurrency token. A filtered unique SQLite index on organization and non-null tax ID protects active records, including races; archived rows are excluded, so their tax ID can be reused. Details are in [Companies CRUD](companies-crud.md).
+
+## BusinessProjects in the shared database
+
+BusinessProjects uses the same physical SQLite file as Companies. Its schema is tracked independently in `__EFMigrationsHistory_BusinessProjects`, while Companies continues to use `__EFMigrationsHistory_Companies`. A backup or recovery operation always covers the complete shared BusinessOS database, including both modules, even where a historical backup filename mentions Companies.

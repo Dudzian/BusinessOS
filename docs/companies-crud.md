@@ -19,3 +19,5 @@ SQLite uses the existing query filter for soft delete and `EntityVersion` concur
 5. Use **Kopie zapasowe** to confirm the existing recovery workflow remains available.
 
 The editor retains fields after validation errors, prevents repeated saves while busy, reloads the captured company identity after a concurrency conflict, and never presents raw EF/SQLite errors. `Archived` is deliberately excluded from the ordinary status selector; only the dedicated confirmed archive operation performs soft delete. The Windows `Ready` smoke automates create, edit, archive, empty-state restoration, and recovery-button availability. Current limitations include no login, synchronization, import, projects, budgeting, branches, attachments, audit log, server pagination, full-text search, hard delete, or per-company restore.
+
+A company cannot be archived while it has any non-archived business project. Closed and Cancelled projects still count; archive all projects first. The constraint is an Application port composed in AppHost, so Companies does not depend on BusinessProjects.

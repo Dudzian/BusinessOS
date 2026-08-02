@@ -10,6 +10,7 @@ public static class CompaniesServices
     public static IServiceCollection AddCompaniesModule(this IServiceCollection services)
     {
         services.AddTransient<ICompaniesCrudService, CompaniesCrudService>();
+        services.AddTransient<ICompaniesLookupService, CompaniesLookupService>();
         return services;
     }
 }
@@ -18,6 +19,17 @@ public interface ICompaniesExecutionContext
 {
     OrganizationId OrganizationId { get; }
     UserId UserId { get; }
+}
+
+public sealed record CompanyLookupItem(Guid Id, string DisplayName, string BaseCurrency, CompanyStatusValue Status);
+public interface ICompaniesLookupService
+{
+    Task<IReadOnlyList<CompanyLookupItem>> ListActiveAsync(CancellationToken cancellationToken);
+    Task<CompanyLookupItem?> GetActiveAsync(Guid companyId, CancellationToken cancellationToken);
+}
+public sealed class CompaniesLookupException : Exception
+{
+    internal CompaniesLookupException(Exception innerException) : base("Companies lookup failed.", innerException) { }
 }
 
 public enum CompanyStatusValue { Draft, Active, Suspended }
@@ -35,7 +47,15 @@ public sealed record UpdateCompanyRequest(Guid CompanyId, long ExpectedVersion, 
     string? TaxIdentificationNumber, string CountryCode, string BaseCurrency, string DefaultTimeZone, CompanyStatusValue Status);
 public sealed record ArchiveCompanyRequest(Guid CompanyId, long ExpectedVersion);
 
-public enum CompanyOperationStatus { Success, ValidationFailed, NotFound, ConcurrencyConflict, DuplicateTaxIdentificationNumber, PersistenceFailure, Cancelled }
+public enum CompanyOperationStatus { Success, ValidationFailed, NotFound, ConcurrencyConflict, DuplicateTaxIdentificationNumber, DependentProjectsExist, PersistenceFailure, Cancelled }
+public sealed record CompanyArchiveConstraintResult(bool IsAllowed, string SafeMessage)
+{
+    public static CompanyArchiveConstraintResult Allowed { get; } = new(true, string.Empty);
+}
+public interface ICompanyArchiveConstraint
+{
+    Task<CompanyArchiveConstraintResult> EvaluateAsync(Guid companyId, CancellationToken cancellationToken);
+}
 public sealed record CompanyOperationResult(CompanyOperationStatus Status, string SafeMessage, IReadOnlyDictionary<string, string[]> ValidationErrors)
 {
     public static CompanyOperationResult Success(string message) => new(CompanyOperationStatus.Success, message, EmptyErrors);
@@ -62,9 +82,42 @@ public interface ICompaniesStore
     Task<bool> TaxIdExistsAsync(OrganizationId organizationId, string taxId, CompanyId? exceptCompanyId, CancellationToken cancellationToken);
     Task AddAsync(Company company, CancellationToken cancellationToken);
     Task<CompaniesSaveStatus> SaveChangesAsync(CancellationToken cancellationToken);
+    Task ResetTrackingAsync() => Task.CompletedTask;
 }
 
-internal sealed class CompaniesCrudService(ICompaniesStore store, ICompaniesExecutionContext executionContext, TimeProvider timeProvider) : ICompaniesCrudService
+internal sealed class CompaniesLookupService(ICompaniesStore store, ICompaniesExecutionContext executionContext) : ICompaniesLookupService
+{
+    public async Task<IReadOnlyList<CompanyLookupItem>> ListActiveAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await store.ListAsync(executionContext.OrganizationId, cancellationToken))
+                .Where(company => company.Status == CompanyStatus.Active)
+                .OrderBy(company => company.DisplayName, StringComparer.Ordinal)
+                .ThenBy(company => company.Id.Value)
+                .Select(Map).ToArray();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (CompaniesPersistenceException exception) { throw new CompaniesLookupException(exception); }
+    }
+
+    public async Task<CompanyLookupItem?> GetActiveAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var company = await store.GetAsync(executionContext.OrganizationId, new CompanyId(companyId), false, cancellationToken);
+            return company is { Status: CompanyStatus.Active } ? Map(company) : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (CompaniesPersistenceException exception) { throw new CompaniesLookupException(exception); }
+    }
+
+    private static CompanyLookupItem Map(Company company) =>
+        new(company.Id.Value, company.DisplayName, company.BaseCurrency.Value, CompanyStatusValue.Active);
+}
+
+internal sealed class CompaniesCrudService(ICompaniesStore store, ICompaniesExecutionContext executionContext, TimeProvider timeProvider,
+    IEnumerable<ICompanyArchiveConstraint> archiveConstraints) : ICompaniesCrudService
 {
     public async Task<IReadOnlyList<CompanyListItem>> ListAsync(CancellationToken cancellationToken) =>
         (await store.ListAsync(executionContext.OrganizationId, cancellationToken))
@@ -111,6 +164,7 @@ internal sealed class CompaniesCrudService(ICompaniesStore store, ICompaniesExec
         catch (ArgumentException exception) { return Validation<CompanyDetails>(exception); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Result<CompanyDetails>(CompanyOperationStatus.Cancelled, "Operacja została anulowana."); }
         catch (CompaniesPersistenceException) { return Result<CompanyDetails>(CompanyOperationStatus.PersistenceFailure, "Nie udało się zapisać firmy. Spróbuj ponownie."); }
+        finally { await store.ResetTrackingAsync(); }
     }
 
     public async Task<CompanyOperationResult> ArchiveAsync(ArchiveCompanyRequest request, CancellationToken cancellationToken)
@@ -120,6 +174,13 @@ internal sealed class CompaniesCrudService(ICompaniesStore store, ICompaniesExec
             var company = await store.GetAsync(executionContext.OrganizationId, new CompanyId(request.CompanyId), true, cancellationToken);
             if (company is null) return Plain(CompanyOperationStatus.NotFound, "Nie znaleziono firmy.");
             if (company.Version.Value != request.ExpectedVersion) return Plain(CompanyOperationStatus.ConcurrencyConflict, "Firma została zmieniona przez inną operację. Odśwież dane.");
+            foreach (var constraint in archiveConstraints)
+            {
+                var evaluation = await constraint.EvaluateAsync(company.Id.Value, cancellationToken);
+                if (!evaluation.IsAllowed)
+                    return Plain(CompanyOperationStatus.DependentProjectsExist,
+                        string.IsNullOrWhiteSpace(evaluation.SafeMessage) ? "Najpierw zarchiwizuj projekty firmy." : evaluation.SafeMessage);
+            }
             company.SoftDelete(executionContext.UserId, timeProvider.GetUtcNow());
             var saved = await store.SaveChangesAsync(cancellationToken);
             return saved switch
@@ -131,6 +192,8 @@ internal sealed class CompaniesCrudService(ICompaniesStore store, ICompaniesExec
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { return Plain(CompanyOperationStatus.Cancelled, "Operacja została anulowana."); }
         catch (CompaniesPersistenceException) { return Plain(CompanyOperationStatus.PersistenceFailure, "Nie udało się zarchiwizować firmy. Spróbuj ponownie."); }
+        catch (Exception) { return Plain(CompanyOperationStatus.PersistenceFailure, "Nie udało się sprawdzić zależności firmy. Spróbuj ponownie."); }
+        finally { await store.ResetTrackingAsync(); }
     }
 
     private static CompanyOperationResult<CompanyDetails> FromSave(CompaniesSaveStatus status, Company company, string success) => status switch

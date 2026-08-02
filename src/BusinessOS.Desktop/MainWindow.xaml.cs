@@ -31,7 +31,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed;
         if (Content is FrameworkElement root) root.DataContext = this;
         _ = RunUiOperationAsync(Companies.RefreshAsync, Companies.ReportPresentationFailure);
-        _ = RunUiOperationAsync(Projects.InitializeAsync, Projects.ReportPresentationFailure);
+        _ = RunUiOperationAsync(() => Projects.InitializeAsync(CancellationToken.None), Projects.ReportPresentationFailure);
     }
 
     private void Changed(object? sender, PropertyChangedEventArgs args)
@@ -48,10 +48,10 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(Companies.RefreshAsync, Companies.ReportPresentationFailure);
     private async void Save_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(Companies.SaveAsync, Companies.ReportPresentationFailure);
     private void Cancel_Click(object sender, RoutedEventArgs e) => Companies.CancelEdit();
-    private async void ProjectsRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(Projects.RefreshAsync, Projects.ReportPresentationFailure);
+    private async void ProjectsRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Projects.RefreshAsync(CancellationToken.None), Projects.ReportPresentationFailure);
     private void ProjectAdd_Click(object sender, RoutedEventArgs e) => Projects.BeginCreate();
-    private async void ProjectEdit_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(Projects.BeginEditAsync, Projects.ReportPresentationFailure);
-    private async void ProjectSave_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(Projects.SaveAsync, Projects.ReportPresentationFailure);
+    private async void ProjectEdit_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Projects.BeginEditAsync(CancellationToken.None), Projects.ReportPresentationFailure);
+    private async void ProjectSave_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Projects.SaveAsync(CancellationToken.None), Projects.ReportPresentationFailure);
     private void ProjectCancel_Click(object sender, RoutedEventArgs e) => Projects.CancelEditor();
     private async void BusinessProjectsCompanySelector_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         await RunUiOperationAsync(() => Projects.SelectCompanyAsync((sender as ComboBox)?.SelectedItem as CompanyLookupItem), Projects.ReportPresentationFailure);

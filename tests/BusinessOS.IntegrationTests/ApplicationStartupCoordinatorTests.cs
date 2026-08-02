@@ -3,6 +3,7 @@ using BusinessOS.Modules.Companies.Infrastructure.Persistence;
 using BusinessOS.Modules.BusinessProjects.Infrastructure.Persistence;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -167,6 +168,23 @@ public sealed class ApplicationStartupCoordinatorTests : IDisposable
         {
             if (Directory.Exists(isolatedRoot)) Directory.Delete(isolatedRoot, true);
         }
+    }
+
+    [Fact]
+    public async Task BusinessProjects_registration_disables_sqlite_connection_pooling()
+    {
+        var databasePath = Path.Combine(root, "pooling", "businessos.db");
+        var services = new ServiceCollection();
+        services.AddBusinessProjectsPersistence(databasePath);
+        await using var provider = services.BuildServiceProvider();
+        var factory = provider.GetRequiredService<IDbContextFactory<BusinessProjectsDbContext>>();
+        await using var context = await factory.CreateDbContextAsync();
+
+        var builder = new SqliteConnectionStringBuilder(
+            context.Database.GetDbConnection().ConnectionString);
+
+        builder.DataSource.Should().Be(databasePath);
+        builder.Pooling.Should().BeFalse();
     }
 
     private ServiceProvider CreateServices(int maxBackups = 10, TimeProvider? timeProvider = null) =>

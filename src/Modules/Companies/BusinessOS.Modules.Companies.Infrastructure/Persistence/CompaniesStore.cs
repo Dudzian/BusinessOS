@@ -96,5 +96,7 @@ internal sealed class CompaniesStore(IDbContextFactory<CompaniesDbContext> conte
         trackedContext = null;
     }
 
+    public Task ResetTrackingAsync() => ResetTrackedContextAsync();
+
     public ValueTask DisposeAsync() => trackedContext is null ? ValueTask.CompletedTask : trackedContext.DisposeAsync();
 }

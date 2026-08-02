@@ -12,25 +12,31 @@ public sealed class CompaniesViewModel(ICompaniesCrudService service) : INotifyP
     private long expectedVersion;
     private bool isBusy;
     private bool isEditorOpen;
+    private bool isArchiveDialogOpen;
+    private Guid? archivingCompanyId;
+    private long archivingExpectedVersion;
+    private string? archivingCompanyName;
     private string operationMessage = string.Empty;
 
     public ObservableCollection<CompanyListItem> Companies { get; } = [];
     public CompanyListItem? SelectedCompany
     {
         get => selectedCompany;
-        set { if (IsBusy) return; Set(ref selectedCompany, value); NotifyCapabilities(); }
+        set { if (IsBusy || IsArchiveDialogOpen) return; Set(ref selectedCompany, value); NotifyCapabilities(); }
     }
     public bool IsBusy { get => isBusy; private set { if (Set(ref isBusy, value)) NotifyCapabilities(); } }
     public bool IsEditorOpen { get => isEditorOpen; private set { if (Set(ref isEditorOpen, value)) NotifyCapabilities(); } }
+    public bool IsArchiveDialogOpen { get => isArchiveDialogOpen; private set { if (Set(ref isArchiveDialogOpen, value)) NotifyCapabilities(); } }
+    public string? ArchivingCompanyName => archivingCompanyName;
     public bool IsEmpty => Companies.Count == 0;
-    public bool CanAdd => !IsBusy && !IsEditorOpen;
-    public bool CanEdit => !IsBusy && !IsEditorOpen && SelectedCompany is not null;
+    public bool CanAdd => !IsBusy && !IsEditorOpen && !IsArchiveDialogOpen;
+    public bool CanEdit => !IsBusy && !IsEditorOpen && !IsArchiveDialogOpen && SelectedCompany is not null;
     public bool CanArchive => CanEdit;
-    public bool CanRefresh => !IsBusy && !IsEditorOpen;
-    public bool CanSelectList => !IsBusy && !IsEditorOpen;
-    public bool CanOpenRecovery => !IsBusy && !IsEditorOpen;
-    public bool CanSave => !IsBusy && IsEditorOpen;
-    public bool CanCancel => !IsBusy && IsEditorOpen;
+    public bool CanRefresh => !IsBusy && !IsEditorOpen && !IsArchiveDialogOpen;
+    public bool CanSelectList => !IsBusy && !IsEditorOpen && !IsArchiveDialogOpen;
+    public bool CanOpenRecovery => !IsBusy && !IsEditorOpen && !IsArchiveDialogOpen;
+    public bool CanSave => !IsBusy && IsEditorOpen && !IsArchiveDialogOpen;
+    public bool CanCancel => !IsBusy && IsEditorOpen && !IsArchiveDialogOpen;
     public string OperationMessage { get => operationMessage; private set => Set(ref operationMessage, value); }
     public string LegalName { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -111,23 +117,40 @@ public sealed class CompaniesViewModel(ICompaniesCrudService service) : INotifyP
         finally { IsBusy = false; }
     }
 
-    public async Task ArchiveAsync()
+    public void OpenArchiveDialog()
     {
         if (!CanArchive) return;
-        var company = SelectedCompany!;
+        archivingCompanyId = SelectedCompany!.Id;
+        archivingExpectedVersion = SelectedCompany.Version;
+        archivingCompanyName = SelectedCompany.DisplayName;
+        OnPropertyChanged(nameof(ArchivingCompanyName));
+        IsArchiveDialogOpen = true;
+    }
+
+    public void CloseArchiveDialog() { if (!IsBusy) ClearArchiveState(); }
+
+    public async Task ConfirmArchiveAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsArchiveDialogOpen || IsBusy || archivingCompanyId is null) return;
+        var capturedId = archivingCompanyId.Value;
+        var capturedVersion = archivingExpectedVersion;
         IsBusy = true;
         try
         {
-            var result = await service.ArchiveAsync(new(company.Id, company.Version), CancellationToken.None);
+            var result = await service.ArchiveAsync(new(capturedId, capturedVersion), cancellationToken);
             OperationMessage = result.SafeMessage;
             if (result.Status is CompanyOperationStatus.Success or CompanyOperationStatus.ConcurrencyConflict or CompanyOperationStatus.NotFound)
                 await ReloadCoreAsync();
             OperationMessage = result.SafeMessage;
         }
-        catch (OperationCanceledException) { OperationMessage = "Archiwizacja została anulowana."; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { OperationMessage = "Archiwizacja została anulowana."; }
         catch { OperationMessage = "Nie udało się zarchiwizować firmy."; }
-        finally { IsBusy = false; }
+        finally { ClearArchiveState(); IsBusy = false; }
     }
+
+    public Task ArchiveAsync() { OpenArchiveDialog(); return ConfirmArchiveAsync(); }
+
+    public void ReportPresentationFailure() => OperationMessage = "Nie udało się wykonać operacji. Spróbuj ponownie.";
 
     private async Task ReloadCoreAsync()
     {
@@ -153,6 +176,14 @@ public sealed class CompaniesViewModel(ICompaniesCrudService service) : INotifyP
     private void NotifyCapabilities()
     {
         foreach (var property in new[] { nameof(CanAdd), nameof(CanEdit), nameof(CanArchive), nameof(CanRefresh), nameof(CanSelectList), nameof(CanOpenRecovery), nameof(CanSave), nameof(CanCancel) }) OnPropertyChanged(property);
+    }
+    private void ClearArchiveState()
+    {
+        IsArchiveDialogOpen = false;
+        archivingCompanyId = null;
+        archivingExpectedVersion = 0;
+        archivingCompanyName = null;
+        OnPropertyChanged(nameof(ArchivingCompanyName));
     }
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));

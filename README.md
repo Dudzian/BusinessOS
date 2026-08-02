@@ -123,6 +123,9 @@ See [docs/persistence.md](docs/persistence.md) for persistence design notes.
 - Block 2B2a — complete
 - Block 2B2b — complete
 - Block 2B3 engineering readiness — complete
-- Block 2C Companies application CRUD — current/implemented
+- Block 2C Companies application CRUD — complete
+- Block 3A BusinessProjects persistence and lifecycle CRUD — current/implemented
 
 BusinessOS uses the [Windows-first CI policy](docs/ci-policy.md). Gate evidence is staged under `artifacts/ci-evidence`, and CI can be audited read-only without GitHub CLI using `eng/audit-github-ci.ps1`.
+
+Business projects belong to an active company and follow a controlled lifecycle. See [BusinessProjects](docs/business-projects.md).

@@ -1,6 +1,7 @@
 using System.Reflection;
 using BusinessOS.Modules.Budgeting.Application;
 using BusinessOS.Modules.BusinessProjects.Application;
+using BusinessOS.Modules.BusinessProjects.Infrastructure.Persistence;
 using BusinessOS.Modules.Companies.Application;
 using BusinessOS.Modules.Companies.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,7 +18,9 @@ public static class BusinessOsHost
             .ConfigureServices((context, services) =>
             {
                 services.AddSingleton(ProductInfo.FromAssembly(productAssembly));
-                services.AddSingleton<ICompaniesExecutionContext, LocalCompaniesExecutionContext>();
+                services.AddSingleton<LocalCompaniesExecutionContext>();
+                services.AddSingleton<ICompaniesExecutionContext>(sp => sp.GetRequiredService<LocalCompaniesExecutionContext>());
+                services.AddSingleton<IBusinessProjectsExecutionContext>(sp => sp.GetRequiredService<LocalCompaniesExecutionContext>());
                 services.AddSingleton(TimeProvider.System);
                 services.AddCompaniesModule();
                 services.AddCompaniesPersistence(options =>
@@ -32,6 +35,14 @@ public static class BusinessOsHost
                     var configuredMaxBackups = context.Configuration["BusinessOS:Persistence:MaxBackups"];
                     options.MaxBackups = ParseMaxBackups(configuredMaxBackups);
                 });
+                var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var projectsDatabasePath = context.Configuration["BusinessOS:Persistence:DatabasePath"];
+                projectsDatabasePath = string.IsNullOrWhiteSpace(projectsDatabasePath)
+                    ? Path.Combine(localData, "BusinessOS", "Data", "businessos.db") : projectsDatabasePath;
+                services.AddBusinessProjectsPersistence(projectsDatabasePath);
+                services.AddSingleton<IDatabaseMigrationHistorySource, BusinessProjectsMigrationHistorySource>();
+                services.AddTransient<IBusinessProjectCompanyAccess, BusinessProjectCompanyAccess>();
+                services.AddTransient<ICompanyArchiveConstraint, BusinessProjectsCompanyArchiveConstraint>();
                 services.AddSingleton<IApplicationStartupCoordinator, ApplicationStartupCoordinator>();
                 services.AddSingleton<ICompaniesRecoveryWorkflow, CompaniesRecoveryWorkflow>();
                 services.AddBusinessProjectsModule();
@@ -53,8 +64,33 @@ public static class BusinessOsHost
 }
 
 // Replaced by identity/workspace context when multi-user support is introduced.
-internal sealed class LocalCompaniesExecutionContext : ICompaniesExecutionContext
+internal sealed class LocalCompaniesExecutionContext : ICompaniesExecutionContext, IBusinessProjectsExecutionContext
 {
     public OrganizationId OrganizationId { get; } = new(new Guid("11111111-1111-1111-1111-111111111111"));
     public UserId UserId { get; } = new(new Guid("22222222-2222-2222-2222-222222222222"));
+}
+
+internal sealed class BusinessProjectCompanyAccess(ICompaniesLookupService companies) : IBusinessProjectCompanyAccess
+{
+    public async Task<BusinessProjectCompanyInfo?> GetAccessibleCompanyAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var company = await companies.GetActiveAsync(companyId, cancellationToken);
+            return company is null ? null : new(company.Id, company.DisplayName, company.BaseCurrency);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (CompaniesLookupException exception)
+        {
+            throw new BusinessProjectCompanyAccessException("Company access lookup failed.", exception);
+        }
+    }
+}
+
+internal sealed class BusinessProjectsCompanyArchiveConstraint(IBusinessProjectsCompanyConstraintReader projects) : ICompanyArchiveConstraint
+{
+    public async Task<CompanyArchiveConstraintResult> EvaluateAsync(Guid companyId, CancellationToken cancellationToken) =>
+        await projects.HasNonArchivedProjectsAsync(companyId, cancellationToken)
+            ? new(false, "Najpierw zarchiwizuj wszystkie projekty firmy.")
+            : CompanyArchiveConstraintResult.Allowed;
 }

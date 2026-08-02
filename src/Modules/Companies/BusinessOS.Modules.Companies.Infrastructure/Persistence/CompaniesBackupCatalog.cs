@@ -62,9 +62,9 @@ public sealed record CompaniesBackupValidationResult(bool Succeeded, CompaniesBa
 
 internal sealed class CompaniesBackupValidator(
     CompaniesPersistenceOptions options,
-    IDbContextFactory<CompaniesDbContext> contextFactory,
     ICompaniesBackupFileOperations files,
-    ILogger<CompaniesBackupValidator> logger)
+    ILogger<CompaniesBackupValidator> logger,
+    IEnumerable<IDatabaseMigrationHistorySource> migrationHistories)
 {
     public string? Resolve(string backupId, out CompaniesBackupValidationFailureCode failure)
     {
@@ -120,18 +120,25 @@ internal sealed class CompaniesBackupValidator(
                     return CompaniesBackupValidationResult.Failure(CompaniesBackupValidationFailureCode.IntegrityCheckFailed);
             }
 
-            await using var history = connection.CreateCommand();
-            history.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory_Companies';";
-            if (await history.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is null)
-                return CompaniesBackupValidationResult.Failure(CompaniesBackupValidationFailureCode.NotCompaniesDatabase);
-            history.CommandText = "SELECT MigrationId FROM __EFMigrationsHistory_Companies ORDER BY rowid;";
-            var applied = new List<string>();
-            await using (var reader = await history.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) applied.Add(reader.GetString(0));
-            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
-            var known = context.Database.GetMigrations().ToArray();
-            return CompaniesMigrationHistoryCompatibility.IsKnownMigrationPrefix(applied, known) ? CompaniesBackupValidationResult.Success() :
-                CompaniesBackupValidationResult.Failure(CompaniesBackupValidationFailureCode.IncompatibleNewerSchema);
+            foreach (var source in migrationHistories)
+            {
+                await using var history = connection.CreateCommand();
+                history.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=$table;";
+                history.Parameters.AddWithValue("$table", source.HistoryTable);
+                if (await history.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is null)
+                {
+                    if (source.IsRequired) return CompaniesBackupValidationResult.Failure(CompaniesBackupValidationFailureCode.NotCompaniesDatabase);
+                    continue;
+                }
+                history.Parameters.Clear();
+                history.CommandText = $"SELECT MigrationId FROM [{source.HistoryTable}] ORDER BY rowid;";
+                var applied = new List<string>();
+                await using (var reader = await history.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) applied.Add(reader.GetString(0));
+                if (!CompaniesMigrationHistoryCompatibility.IsKnownMigrationPrefix(applied, source.KnownMigrations))
+                    return CompaniesBackupValidationResult.Failure(CompaniesBackupValidationFailureCode.IncompatibleNewerSchema);
+            }
+            return CompaniesBackupValidationResult.Success();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (SqliteException exception) { logger.LogWarning(exception, "Companies backup SQLite validation failed."); return CompaniesBackupValidationResult.Failure(CompaniesBackupValidationFailureCode.IntegrityCheckFailed); }

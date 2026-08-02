@@ -24,6 +24,7 @@ public static class CompaniesPersistenceServiceCollectionExtensions
         services.AddSingleton<ICompaniesMigrationInspector, CompaniesMigrationInspector>();
         services.AddSingleton<ICompaniesDatabaseBackupService, CompaniesDatabaseBackupService>();
         services.AddSingleton<CompaniesBackupValidator>();
+        services.AddSingleton<IDatabaseMigrationHistorySource, CompaniesMigrationHistorySource>();
         services.AddSingleton<ICompaniesBackupFileOperations, CompaniesBackupFileOperations>();
         services.AddSingleton<ICompaniesBackupCatalog, CompaniesBackupCatalog>();
         services.AddSingleton<ICompaniesRestoreFileOperations, CompaniesRestoreFileOperations>();

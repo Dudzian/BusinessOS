@@ -10,6 +10,19 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void BusinessProjects_boundaries_and_public_contracts_are_safe()
+    {
+        var application = typeof(BusinessOS.Modules.BusinessProjects.Application.IBusinessProjectsCrudService).Assembly;
+        Types.InAssembly(application).ShouldNot().HaveDependencyOnAny("Microsoft.EntityFrameworkCore", "Microsoft.Data.Sqlite", "BusinessOS.Modules.Companies.Application", "BusinessOS.Modules.BusinessProjects.Infrastructure").GetResult().IsSuccessful.Should().BeTrue();
+        var contracts = new[] { typeof(BusinessOS.Modules.BusinessProjects.Application.BusinessProjectListItem), typeof(BusinessOS.Modules.BusinessProjects.Application.BusinessProjectDetails), typeof(BusinessOS.Modules.BusinessProjects.Application.CreateBusinessProjectRequest), typeof(BusinessOS.Modules.BusinessProjects.Application.UpdateBusinessProjectRequest) };
+        contracts.SelectMany(type => type.GetProperties()).Select(property => property.PropertyType).Should().NotContain(type => typeof(Exception).IsAssignableFrom(type) || type.Name.Contains("DbContext", StringComparison.Ordinal) || type.Name.Contains("IQueryable", StringComparison.Ordinal) || (type.Namespace != null && type.Namespace.Contains("BusinessProjects.Domain", StringComparison.Ordinal)));
+        var references = LoadProjectReferences(FindRepositoryRoot());
+        references["src/BusinessOS.Desktop/BusinessOS.Desktop.csproj"].Should().NotContain(reference => reference.Contains("BusinessProjects.Domain", StringComparison.Ordinal) || reference.Contains("BusinessProjects.Infrastructure", StringComparison.Ordinal));
+        references["src/Modules/Companies/BusinessOS.Modules.Companies.Application/BusinessOS.Modules.Companies.Application.csproj"].Should().NotContain(reference => reference.Contains("BusinessProjects", StringComparison.Ordinal));
+        File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/Persistence/CompaniesPersistenceServiceCollectionExtensions.cs")).Should().Contain("__EFMigrationsHistory_Companies");
+        File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src/Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Infrastructure/Persistence/BusinessProjectsPersistenceServiceCollectionExtensions.cs")).Should().Contain("__EFMigrationsHistory_BusinessProjects");
+    }
+    [Fact]
     public void Companies_application_contracts_and_desktop_boundary_do_not_leak_persistence_or_domain_types()
     {
         var application = typeof(BusinessOS.Modules.Companies.Application.ICompaniesCrudService).Assembly;

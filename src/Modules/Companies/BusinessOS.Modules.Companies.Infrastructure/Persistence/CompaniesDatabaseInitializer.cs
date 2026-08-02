@@ -14,5 +14,8 @@ public sealed class CompaniesDatabaseInitializer(IDbContextFactory<CompaniesDbCo
         options.EnsureDatabaseDirectory();
         await using var dbContext = await dbContextFactory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
         await dbContext.Database.MigrateAsync(cancellationToken).ConfigureAwait(false);
+        if (!await dbContext.Database.CanConnectAsync(cancellationToken).ConfigureAwait(false) ||
+            (await dbContext.Database.GetPendingMigrationsAsync(cancellationToken).ConfigureAwait(false)).Any())
+            throw new InvalidOperationException("Companies database migration verification failed.");
     }
 }

@@ -119,6 +119,55 @@ function Invoke-CompaniesCrudSmoke($Main) {
         return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 0 -and (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 1 -and -not (Test-Visible $editor)
     }
     Add-Content $diagnostics 'CompaniesCrud: update PASS'
+    Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Projects section did not load the created company.' -Condition {
+        $panel=Get-AutomationIdElement $Main 'BusinessProjectsSectionPanel'; $selector=Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector'; $add=Get-AutomationIdElement $Main 'AddBusinessProjectButton'
+        return (Test-Visible $panel) -and $null-ne$selector -and (Get-NamedElements $selector 'BusinessOS Smoke Updated').Count-ge 1 -and $null-ne$add -and $add.Current.IsEnabled -and (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectsEmptyState'))
+    }
+    Invoke-AutomationIdButton $Main 'AddBusinessProjectButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'BusinessProject editor did not open or filter stayed enabled.' -Condition { $filter=Get-AutomationIdElement $Main 'BusinessProjectsStatusFilter'; (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectEditorPanel')) -and $null-ne$filter -and -not$filter.Current.IsEnabled }
+    Set-AutomationValue $Main 'BusinessProjectNameInput' 'BusinessOS Gym Smoke'
+    Set-AutomationValue $Main 'BusinessProjectTypeInput' 'Gym 24/7'
+    Set-AutomationValue $Main 'BusinessProjectLocationInput' 'Leczyca'
+    Set-AutomationValue $Main 'BusinessProjectCurrencyInput' 'PLN'
+    Invoke-AutomationIdButton $Main 'SaveBusinessProjectButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Created project did not stabilize in BusinessProjectsList.' -Condition {
+        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 1 -and -not (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectEditorPanel'))
+    }
+    $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke')[0]
+    Invoke-AutomationIdButton $Main 'EditBusinessProjectButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project editor did not reopen.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectEditorPanel') }
+    Set-AutomationValue $Main 'BusinessProjectNameInput' 'BusinessOS Gym Smoke Updated'
+    Invoke-AutomationIdButton $Main 'SaveBusinessProjectButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated project did not stabilize in BusinessProjectsList.' -Condition {
+        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 0 -and (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated').Count -eq 1
+    }
+    $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated')[0]
+    $statusButton=Get-AutomationIdElement $Main 'ChangeBusinessProjectStatusButton'; if($null-eq$statusButton-or-not$statusButton.Current.IsEnabled){throw 'Status transition button was not enabled for Draft.'}
+    Invoke-AutomationIdButton $Main 'ChangeBusinessProjectStatusButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project status dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectStatusDialog') }
+    $statusDialog=Get-AutomationIdElement $Main 'BusinessProjectStatusDialog'; $selector=Get-AutomationIdElement $statusDialog 'BusinessProjectStatusSelector'; $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; $recovery=Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton'; if($projectsList.Current.IsEnabled-or$recovery.Current.IsEnabled){throw 'Status dialog did not lock project selection and recovery.'}
+    $selector.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand(); Start-Sleep -Milliseconds 300
+    Select-ContainingListItem (Get-NamedElements $statusDialog 'Analysis')[0]
+    Invoke-AutomationIdButton $statusDialog 'ConfirmBusinessProjectStatusButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Analysis status did not appear in project list.' -Condition { (Get-NamedElements (Get-AutomationIdElement $Main 'BusinessProjectsList') 'Analysis').Count -ge 1 }
+    Invoke-AutomationIdButton $Main 'CompaniesSectionButton'
+    $list=Get-AutomationIdElement $Main 'CompaniesList'; Select-ContainingListItem (Get-NamedElements $list 'BusinessOS Smoke Updated')[0]
+    Invoke-AutomationIdButton $Main 'ArchiveCompanyButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveCompanyDialog') }
+    $companyArchiveDialog=Get-AutomationIdElement $Main 'ArchiveCompanyDialog'; if((Get-AutomationIdElement $Main 'CompaniesList').Current.IsEnabled-or(Get-AutomationIdElement $Main 'CompaniesSectionButton').Current.IsEnabled-or(Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled){throw 'Company archive dialog did not lock list, navigation, and recovery.'}
+    Invoke-AutomationIdButton $companyArchiveDialog 'CancelArchiveCompanyButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive cancellation did not restore controls.' -Condition { -not(Test-Visible(Get-AutomationIdElement $Main 'ArchiveCompanyDialog')) -and (Get-AutomationIdElement $Main 'CompaniesList').Current.IsEnabled -and (Get-AutomationIdElement $Main 'CompaniesSectionButton').Current.IsEnabled -and (Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled }
+    Invoke-AutomationIdButton $Main 'ArchiveCompanyButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard dialog did not reopen.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveCompanyDialog') }
+    Invoke-AutomationIdButton (Get-AutomationIdElement $Main 'ArchiveCompanyDialog') 'ConfirmArchiveCompanyButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard did not return a safe message.' -Condition { (Get-NamedElements $Main 'Najpierw zarchiwizuj wszystkie projekty firmy.').Count -ge 1 }
+    if ((Get-NamedElements (Get-AutomationIdElement $Main 'CompaniesList') 'BusinessOS Smoke Updated').Count -ne 1) { throw 'Company disappeared despite project archive guard.' }
+    Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'; $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated')[0]
+    Invoke-AutomationIdButton $Main 'ArchiveBusinessProjectButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project archive dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog') }
+    $projectArchiveDialog=Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog'; $dialogText=@($projectArchiveDialog.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)|ForEach-Object{$_.Current.Name})-join' | '; if(-not$dialogText.Contains('BusinessOS Gym Smoke Updated')){throw 'Project archive dialog did not contain captured project name.'}; if((Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector').Current.IsEnabled-or(Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled){throw 'Archive dialog did not lock company selector and recovery.'}
+    Invoke-AutomationIdButton $projectArchiveDialog 'CancelArchiveBusinessProjectButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Archive cancel did not restore controls.' -Condition { -not(Test-Visible(Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog')) -and (Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector').Current.IsEnabled -and (Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled }
+    Invoke-AutomationIdButton $Main 'ArchiveBusinessProjectButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project archive dialog did not reopen.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog') }; $projectArchiveDialog=Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog'
+    Invoke-AutomationIdButton $projectArchiveDialog 'ConfirmArchiveBusinessProjectButton'
+    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Archived project remained visible.' -Condition { (Get-NamedElements (Get-AutomationIdElement $Main 'BusinessProjectsList') 'BusinessOS Gym Smoke Updated').Count -eq 0 -and (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectsEmptyState')) }
+    Invoke-AutomationIdButton $Main 'CompaniesSectionButton'
     $list = Get-AutomationIdElement $Main 'CompaniesList'; $item = (Get-NamedElements $list 'BusinessOS Smoke Updated')[0]
     Select-ContainingListItem $item
     Invoke-AutomationIdButton $Main 'ArchiveCompanyButton'

@@ -82,6 +82,59 @@ function Select-ContainingListItem($Element) {
     $current.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
 }
 function Test-Visible($Element) { $null -ne $Element -and -not $Element.Current.IsOffscreen }
+function Test-CompanyEditorOpen($Main) {
+    $legalName = Get-AutomationIdElement $Main 'CompanyLegalNameInput'
+    $displayName = Get-AutomationIdElement $Main 'CompanyDisplayNameInput'
+    $save = Get-AutomationIdElement $Main 'SaveCompanyButton'
+    $cancel = Get-AutomationIdElement $Main 'CancelCompanyButton'
+    (Test-Visible $legalName) -and (Test-Visible $displayName) -and $null -ne $save -and $save.Current.IsEnabled -and $null -ne $cancel -and $cancel.Current.IsEnabled
+}
+function Test-CompanyEditorClosed($Main) {
+    @('CompanyLegalNameInput', 'CompanyDisplayNameInput', 'SaveCompanyButton', 'CancelCompanyButton') |
+        Where-Object { Test-Visible (Get-AutomationIdElement $Main $_) } |
+        Measure-Object | Select-Object -ExpandProperty Count | ForEach-Object { $_ -eq 0 }
+}
+function Test-BusinessProjectEditorOpen($Main) {
+    $name = Get-AutomationIdElement $Main 'BusinessProjectNameInput'
+    $type = Get-AutomationIdElement $Main 'BusinessProjectTypeInput'
+    $save = Get-AutomationIdElement $Main 'SaveBusinessProjectButton'
+    $cancel = Get-AutomationIdElement $Main 'CancelBusinessProjectButton'
+    $filter = Get-AutomationIdElement $Main 'BusinessProjectsStatusFilter'
+    (Test-Visible $name) -and (Test-Visible $type) -and $null -ne $save -and $save.Current.IsEnabled -and $null -ne $cancel -and $cancel.Current.IsEnabled -and $null -ne $filter -and -not $filter.Current.IsEnabled
+}
+function Test-BusinessProjectEditorClosed($Main) {
+    @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'SaveBusinessProjectButton', 'CancelBusinessProjectButton') |
+        Where-Object { Test-Visible (Get-AutomationIdElement $Main $_) } |
+        Measure-Object | Select-Object -ExpandProperty Count | ForEach-Object { $_ -eq 0 }
+}
+function Format-AutomationElementState($Element) {
+    if ($null -eq $Element) { return 'Found=False; IsEnabled=n/a; IsOffscreen=n/a' }
+    "Found=True; IsEnabled=$($Element.Current.IsEnabled); IsOffscreen=$($Element.Current.IsOffscreen)"
+}
+function Write-EditorTimeoutDiagnostics($Main, [string]$ExpectedAutomationId, [string[]]$EditorAutomationIds) {
+    Add-Content $diagnostics "Editor timeout scenario: $Scenario"
+    Add-Content $diagnostics "Expected AutomationId: $ExpectedAutomationId; $(Format-AutomationElementState (Get-AutomationIdElement $Main $ExpectedAutomationId))"
+    foreach ($id in @('AddCompanyButton', 'CompaniesSectionPanel', 'CompanyOperationMessage')) {
+        Add-Content $diagnostics "$id state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id))"
+    }
+    $foundIds = @($EditorAutomationIds | Where-Object { $null -ne (Get-AutomationIdElement $Main $_) })
+    Add-Content $diagnostics "Found editor AutomationIds: $($foundIds -join ', ')"
+}
+function Wait-EditorOpen($Main, [ValidateSet('Company', 'BusinessProject')]$Editor, [string]$Invocation) {
+    $ids = if ($Editor -eq 'Company') { @('CompanyLegalNameInput', 'CompanyDisplayNameInput', 'SaveCompanyButton', 'CancelCompanyButton') } else { @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'SaveBusinessProjectButton', 'CancelBusinessProjectButton', 'BusinessProjectsStatusFilter') }
+    try {
+        Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage "$Editor editor did not expose its interactive controls after $Invocation invocation." -Condition {
+            if ($Editor -eq 'Company') { Test-CompanyEditorOpen $Main } else { Test-BusinessProjectEditorOpen $Main }
+        }
+    } catch {
+        $missing = @($ids | Where-Object {
+            $element = Get-AutomationIdElement $Main $_
+            $null -eq $element -or $element.Current.IsOffscreen -or (($_ -like 'Save*' -or $_ -like 'Cancel*') -and -not $element.Current.IsEnabled) -or ($_ -eq 'BusinessProjectsStatusFilter' -and $element.Current.IsEnabled)
+        })[0]
+        Write-EditorTimeoutDiagnostics $Main $missing $ids
+        throw "$Editor editor did not expose $missing after $Invocation invocation."
+    }
+}
 function Get-NamedElements($Root, [string]$Name) {
     $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $Name)
     @($Root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition))
@@ -95,7 +148,7 @@ function Invoke-CompaniesCrudSmoke($Main) {
     }
     Add-Content $diagnostics 'CompaniesCrud: empty-state confirmed'
     Invoke-AutomationIdButton $Main 'AddCompanyButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company editor did not open.' -Condition { $null -ne (Get-AutomationIdElement $Main 'CompanyEditorPanel') }
+    Wait-EditorOpen $Main Company 'AddCompanyButton'
     Set-AutomationValue $Main 'CompanyLegalNameInput' 'BusinessOS Smoke Legal'
     Set-AutomationValue $Main 'CompanyDisplayNameInput' 'BusinessOS Smoke'
     Set-AutomationValue $Main 'CompanyTaxIdInput' '5260250995'
@@ -104,19 +157,19 @@ function Invoke-CompaniesCrudSmoke($Main) {
     Set-AutomationValue $Main 'CompanyTimeZoneInput' 'Europe/Warsaw'
     Invoke-AutomationIdButton $Main 'SaveCompanyButton'
     Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Created company did not stabilize in the list.' -Condition {
-        $list = Get-AutomationIdElement $Main 'CompaniesList'; $editor = Get-AutomationIdElement $Main 'CompanyEditorPanel'; $empty = Get-AutomationIdElement $Main 'CompaniesEmptyState'
-        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 1 -and -not (Test-Visible $editor) -and -not (Test-Visible $empty)
+        $list = Get-AutomationIdElement $Main 'CompaniesList'; $empty = Get-AutomationIdElement $Main 'CompaniesEmptyState'
+        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 1 -and (Test-CompanyEditorClosed $Main) -and -not (Test-Visible $empty)
     }
     Add-Content $diagnostics 'CompaniesCrud: create PASS'
     $list = Get-AutomationIdElement $Main 'CompaniesList'; $item = (Get-NamedElements $list 'BusinessOS Smoke')[0]
     Select-ContainingListItem $item
     Invoke-AutomationIdButton $Main 'EditCompanyButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company edit form did not open.' -Condition { $null -ne (Get-AutomationIdElement $Main 'CompanyDisplayNameInput') }
+    Wait-EditorOpen $Main Company 'EditCompanyButton'
     Set-AutomationValue $Main 'CompanyDisplayNameInput' 'BusinessOS Smoke Updated'
     Invoke-AutomationIdButton $Main 'SaveCompanyButton'
     Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated company name did not stabilize in the list.' -Condition {
-        $list = Get-AutomationIdElement $Main 'CompaniesList'; $editor = Get-AutomationIdElement $Main 'CompanyEditorPanel'
-        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 0 -and (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 1 -and -not (Test-Visible $editor)
+        $list = Get-AutomationIdElement $Main 'CompaniesList'
+        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 0 -and (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 1 -and (Test-CompanyEditorClosed $Main)
     }
     Add-Content $diagnostics 'CompaniesCrud: update PASS'
     Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'
@@ -125,22 +178,22 @@ function Invoke-CompaniesCrudSmoke($Main) {
         return (Test-Visible $panel) -and $null-ne$selector -and (Get-NamedElements $selector 'BusinessOS Smoke Updated').Count-ge 1 -and $null-ne$add -and $add.Current.IsEnabled -and (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectsEmptyState'))
     }
     Invoke-AutomationIdButton $Main 'AddBusinessProjectButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'BusinessProject editor did not open or filter stayed enabled.' -Condition { $filter=Get-AutomationIdElement $Main 'BusinessProjectsStatusFilter'; (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectEditorPanel')) -and $null-ne$filter -and -not$filter.Current.IsEnabled }
+    Wait-EditorOpen $Main BusinessProject 'AddBusinessProjectButton'
     Set-AutomationValue $Main 'BusinessProjectNameInput' 'BusinessOS Gym Smoke'
     Set-AutomationValue $Main 'BusinessProjectTypeInput' 'Gym 24/7'
     Set-AutomationValue $Main 'BusinessProjectLocationInput' 'Leczyca'
     Set-AutomationValue $Main 'BusinessProjectCurrencyInput' 'PLN'
     Invoke-AutomationIdButton $Main 'SaveBusinessProjectButton'
     Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Created project did not stabilize in BusinessProjectsList.' -Condition {
-        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 1 -and -not (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectEditorPanel'))
+        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 1 -and (Test-BusinessProjectEditorClosed $Main)
     }
     $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke')[0]
     Invoke-AutomationIdButton $Main 'EditBusinessProjectButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project editor did not reopen.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectEditorPanel') }
+    Wait-EditorOpen $Main BusinessProject 'EditBusinessProjectButton'
     Set-AutomationValue $Main 'BusinessProjectNameInput' 'BusinessOS Gym Smoke Updated'
     Invoke-AutomationIdButton $Main 'SaveBusinessProjectButton'
     Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated project did not stabilize in BusinessProjectsList.' -Condition {
-        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 0 -and (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated').Count -eq 1
+        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 0 -and (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated').Count -eq 1 -and (Test-BusinessProjectEditorClosed $Main)
     }
     $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated')[0]
     $statusButton=Get-AutomationIdElement $Main 'ChangeBusinessProjectStatusButton'; if($null-eq$statusButton-or-not$statusButton.Current.IsEnabled){throw 'Status transition button was not enabled for Draft.'}

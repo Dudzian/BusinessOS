@@ -30,6 +30,11 @@ try{
  if($smokeSource-match"Get-AutomationIdElement[^`r`n]*CompanyEditorPanel"-or$smokeSource-match"Get-AutomationIdElement[^`r`n]*BusinessProjectEditorPanel"){throw 'Desktop smoke depends on a layout editor panel'}
  foreach($automationId in 'CompanyLegalNameInput','CompanyDisplayNameInput','SaveCompanyButton','CancelCompanyButton','BusinessProjectNameInput','BusinessProjectTypeInput','SaveBusinessProjectButton','CancelBusinessProjectButton'){if(-not$smokeSource.Contains("'$automationId'")){throw "Desktop smoke is missing stable AutomationId $automationId"}}
  Write-Host 'Desktop smoke interactive editor contract PASS'
+ if($smokeSource.Contains("Get-NamedElements `$selector 'BusinessOS Smoke Updated'")){throw 'Desktop smoke uses a descendant name as the selected company contract'}
+ $selectionHelper='(?s)function Get-SelectedAutomationItem\(\$Element\).*?SelectionPattern\]::Pattern.*?GetSelection\(\).*?function Test-SelectedAutomationItemName'
+ $projectsSelection='(?s)BusinessProjectsCompanySelector.*?Test-SelectedAutomationItemName \$selector ''BusinessOS Smoke Updated'''
+ if($smokeSource-notmatch$selectionHelper-or$smokeSource-notmatch$projectsSelection){throw 'Desktop smoke does not connect the BusinessProjects company selector to SelectionPattern.GetSelection()'}
+ Write-Host 'Desktop smoke BusinessProjects selected company contract PASS'
  $corruptions=@(
   @{Name='corrupt-trx';Setup={Set-Content "$trxDir/corrupt.trx" '<bad'}},
   @{Name='corrupt-vulnerabilities';Setup={Set-Content "$root/.cache/vulnerable-packages.json" '{bad'}},

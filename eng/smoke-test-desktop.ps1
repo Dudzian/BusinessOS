@@ -120,6 +120,32 @@ function Write-EditorTimeoutDiagnostics($Main, [string]$ExpectedAutomationId, [s
     $foundIds = @($EditorAutomationIds | Where-Object { $null -ne (Get-AutomationIdElement $Main $_) })
     Add-Content $diagnostics "Found editor AutomationIds: $($foundIds -join ', ')"
 }
+function Write-UpdateTimeoutDiagnostics($Main, [ValidateSet('Companies', 'BusinessProjects')]$Editor, [string]$OldName, [string]$UpdatedName) {
+    if ($Editor -eq 'Companies') {
+        $list = Get-AutomationIdElement $Main 'CompaniesList'
+        $editorClosed = Test-CompanyEditorClosed $Main
+        $inputId = 'CompanyDisplayNameInput'
+        $saveId = 'SaveCompanyButton'
+        $messageId = 'CompanyOperationMessage'
+        $editorClosedLabel = 'Test-CompanyEditorClosed'
+    } else {
+        $list = Get-AutomationIdElement $Main 'BusinessProjectsList'
+        $editorClosed = Test-BusinessProjectEditorClosed $Main
+        $inputId = 'BusinessProjectNameInput'
+        $saveId = 'SaveBusinessProjectButton'
+        $messageId = 'BusinessProjectOperationMessage'
+        $editorClosedLabel = 'Test-BusinessProjectEditorClosed'
+    }
+    $message = Get-AutomationIdElement $Main $messageId
+    $messageName = if ($null -eq $message) { '<not found>' } else { $message.Current.Name }
+    Add-Content $diagnostics "Update timeout scenario: $Scenario / $Editor update"
+    Add-Content $diagnostics "old-name count: $((Get-NamedElements $list $OldName).Count)"
+    Add-Content $diagnostics "updated-name count: $((Get-NamedElements $list $UpdatedName).Count)"
+    Add-Content $diagnostics "${editorClosedLabel}: $editorClosed"
+    Add-Content $diagnostics "$inputId state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $inputId))"
+    Add-Content $diagnostics "$saveId state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $saveId))"
+    Add-Content $diagnostics "$messageId.Current.Name: $messageName"
+}
 function Wait-EditorOpen($Main, [ValidateSet('Company', 'BusinessProject')]$Editor, [string]$Invocation) {
     $ids = if ($Editor -eq 'Company') { @('CompanyLegalNameInput', 'CompanyDisplayNameInput', 'SaveCompanyButton', 'CancelCompanyButton') } else { @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'SaveBusinessProjectButton', 'CancelBusinessProjectButton', 'BusinessProjectsStatusFilter') }
     try {
@@ -167,9 +193,14 @@ function Invoke-CompaniesCrudSmoke($Main) {
     Wait-EditorOpen $Main Company 'EditCompanyButton'
     Set-AutomationValue $Main 'CompanyDisplayNameInput' 'BusinessOS Smoke Updated'
     Invoke-AutomationIdButton $Main 'SaveCompanyButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated company name did not stabilize in the list.' -Condition {
-        $list = Get-AutomationIdElement $Main 'CompaniesList'
-        return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 0 -and (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 1 -and (Test-CompanyEditorClosed $Main)
+    try {
+        Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated company name did not stabilize in the list.' -Condition {
+            $list = Get-AutomationIdElement $Main 'CompaniesList'
+            return (Get-NamedElements $list 'BusinessOS Smoke').Count -eq 0 -and (Get-NamedElements $list 'BusinessOS Smoke Updated').Count -eq 1 -and (Test-CompanyEditorClosed $Main)
+        }
+    } catch {
+        Write-UpdateTimeoutDiagnostics $Main Companies 'BusinessOS Smoke' 'BusinessOS Smoke Updated'
+        throw 'Updated company name did not stabilize in the list.'
     }
     Add-Content $diagnostics 'CompaniesCrud: update PASS'
     Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'
@@ -192,8 +223,13 @@ function Invoke-CompaniesCrudSmoke($Main) {
     Wait-EditorOpen $Main BusinessProject 'EditBusinessProjectButton'
     Set-AutomationValue $Main 'BusinessProjectNameInput' 'BusinessOS Gym Smoke Updated'
     Invoke-AutomationIdButton $Main 'SaveBusinessProjectButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated project did not stabilize in BusinessProjectsList.' -Condition {
-        $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 0 -and (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated').Count -eq 1 -and (Test-BusinessProjectEditorClosed $Main)
+    try {
+        Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Updated project did not stabilize in BusinessProjectsList.' -Condition {
+            $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; return (Get-NamedElements $projectsList 'BusinessOS Gym Smoke').Count -eq 0 -and (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated').Count -eq 1 -and (Test-BusinessProjectEditorClosed $Main)
+        }
+    } catch {
+        Write-UpdateTimeoutDiagnostics $Main BusinessProjects 'BusinessOS Gym Smoke' 'BusinessOS Gym Smoke Updated'
+        throw 'Updated project did not stabilize in BusinessProjectsList.'
     }
     $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated')[0]
     $statusButton=Get-AutomationIdElement $Main 'ChangeBusinessProjectStatusButton'; if($null-eq$statusButton-or-not$statusButton.Current.IsEnabled){throw 'Status transition button was not enabled for Draft.'}

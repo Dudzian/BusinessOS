@@ -49,6 +49,38 @@ public sealed class ArchitectureRulesTests
     }
 
     [Fact]
+    public void Desktop_editor_text_bindings_update_view_models_as_the_user_types()
+    {
+        string[] editorTextBoxIds =
+        [
+            "CompanyLegalNameInput",
+            "CompanyDisplayNameInput",
+            "CompanyTaxIdInput",
+            "CompanyCountryInput",
+            "CompanyCurrencyInput",
+            "CompanyTimeZoneInput",
+            "BusinessProjectNameInput",
+            "BusinessProjectTypeInput",
+            "BusinessProjectLocationInput",
+            "BusinessProjectDescriptionInput",
+            "BusinessProjectCurrencyInput",
+        ];
+        var document = XDocument.Load(Path.Combine(FindRepositoryRoot(), "src/BusinessOS.Desktop/MainWindow.xaml"));
+
+        foreach (var automationId in editorTextBoxIds)
+        {
+            var textBox = document.Descendants()
+                .SingleOrDefault(element => element.Name.LocalName == "TextBox" &&
+                    element.Attributes().Any(attribute => attribute.Name.LocalName == "AutomationProperties.AutomationId" && attribute.Value == automationId));
+
+            textBox.Should().NotBeNull($"{automationId} must identify its own TextBox");
+            var textBinding = textBox!.Attribute("Text")?.Value;
+            textBinding.Should().Contain("Mode=TwoWay", $"{automationId} must write edits to its view model");
+            textBinding.Should().Contain("UpdateSourceTrigger=PropertyChanged", $"{automationId} must commit text before Save is invoked");
+        }
+    }
+
+    [Fact]
     public void AppHost_recovery_DTOs_do_not_expose_sensitive_technical_properties()
     {
         string[] forbidden = ["Path", "DatabasePath", "BackupPath", "SafetyBackupPath", "Exception", "StackTrace", "ConnectionString"];

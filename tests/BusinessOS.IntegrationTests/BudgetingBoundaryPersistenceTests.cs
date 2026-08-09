@@ -10,6 +10,37 @@ namespace BusinessOS.IntegrationTests;
 public sealed class BudgetingBoundaryPersistenceTests
 {
     [Fact]
+    public async Task List_budgets_for_empty_project_uses_real_sqlite_without_throwing()
+    {
+        await using var fixture = await Fixture.Create();
+
+        var budgets = await fixture.Store.ListBudgetsAsync(BusinessProjectId.New(), default);
+
+        Assert.Empty(budgets);
+    }
+
+    [Fact]
+    public async Task List_budgets_filters_project_and_archived_rows_then_orders_by_updated_time()
+    {
+        await using var fixture = await Fixture.Create();
+        var project = BusinessProjectId.New();
+        var older = Budget.Create(project, "Older", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var newer = Budget.Create(project, "Newer", new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
+        var otherProject = Budget.Create(BusinessProjectId.New(), "Other", new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
+        var archived = Budget.Create(project, "Archived", new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero));
+        archived.Archive(new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero));
+        foreach (var budget in new[] { older, newer, otherProject, archived })
+        {
+            await fixture.Store.AddBudgetAsync(budget, default);
+            Assert.Equal(BudgetingOperationStatus.Success, await fixture.Store.SaveAsync(default));
+        }
+
+        var budgets = await fixture.Store.ListBudgetsAsync(project, default);
+
+        Assert.Equal([newer.Id, older.Id], budgets.Select(x => x.Id));
+    }
+
+    [Fact]
     public async Task Initial_and_next_results_identify_persisted_versions_and_advance_budget()
     {
         await using var fixture = await Fixture.Create(); var store = fixture.Store; var budget = Budget.Create(BusinessProjectId.New(), "Plan", DateTimeOffset.UtcNow);

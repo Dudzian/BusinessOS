@@ -9,7 +9,17 @@ namespace BusinessOS.Modules.Budgeting.Infrastructure.Persistence;
 internal sealed class BudgetingStore(IDbContextFactory<BudgetingDbContext> factory) : IBudgetingStore, IAsyncDisposable
 {
     private BudgetingDbContext? tracked;
-    public Task<IReadOnlyList<Budget>> ListBudgetsAsync(BusinessProjectId id, CancellationToken ct) => Read(async db => (IReadOnlyList<Budget>)await db.Budgets.AsNoTracking().Where(x => x.ProjectId == id && x.ArchivedAtUtc == null).OrderByDescending(x => x.UpdatedAtUtc).ToArrayAsync(ct), ct);
+    public Task<IReadOnlyList<Budget>> ListBudgetsAsync(BusinessProjectId id, CancellationToken ct) => Read(async db =>
+    {
+        var budgets = await db.Budgets
+            .AsNoTracking()
+            .Where(x => x.ProjectId == id && x.ArchivedAtUtc == null)
+            .ToArrayAsync(ct);
+
+        return (IReadOnlyList<Budget>)budgets
+            .OrderByDescending(x => x.UpdatedAtUtc)
+            .ToArray();
+    }, ct);
     public async Task<Budget?> GetBudgetAsync(BudgetId id, bool tracking, CancellationToken ct) { if (!tracking) return await Read(db => db.Budgets.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct), ct); return await Tracked(async db => await db.Budgets.SingleOrDefaultAsync(x => x.Id == id, ct), ct); }
     public Task<bool> NameExistsAsync(BusinessProjectId p, string n, BudgetId? except, CancellationToken ct) => Read(db => db.Budgets.AsNoTracking().AnyAsync(x => x.ProjectId == p && x.NormalizedName == n && x.ArchivedAtUtc == null && (except == null || x.Id != except), ct), ct);
     public Task AddBudgetAsync(Budget b, CancellationToken ct) => Tracked(async db => { await db.Budgets.AddAsync(b, ct); return true; }, ct);

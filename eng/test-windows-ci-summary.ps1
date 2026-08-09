@@ -60,6 +60,23 @@ try {
     Test-BusinessOSCiEvidence $summary | Out-Null
     if (-not ($json | Test-Json -SchemaFile "$PSScriptRoot/schemas/ci-evidence.schema.json" -ErrorAction Stop)) { throw 'Windows summary failed JSON Schema.' }
     & "$PSScriptRoot/stage-ci-artifacts.ps1" -Gate windows
+    if (-not (Test-Path (Join-Path $root 'artifacts/ci-evidence/windows/desktop-smoke-diagnostics.txt'))) { throw 'Windows PASS staging omitted diagnostics.' }
+
+    Remove-Item $scenarioDirectory -Recurse -Force
+    New-Item -ItemType Directory -Force $scenarioDirectory | Out-Null
+    $failedScenario = $scenarios[0]
+    $failedScenario.status = 'FAIL'
+    $failedScenario.exited = $true
+    $failedScenario.exitCode = 1
+    $failedScenario | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $scenarioDirectory 'Ready.json') -Encoding utf8NoBOM
+    Set-Content (Join-Path $root 'artifacts/smoke-test/desktop-smoke-diagnostics.txt') 'Failed Windows smoke diagnostics regression fixture.'
+    & "$PSScriptRoot/write-ci-summary.ps1" -Gate windows -Status FAIL -FailureStage smoke -FailureMessage 'controlled smoke failure' -LastCompletedStage tests -FormatStatus PASS -BuildStatus PASS
+    & "$PSScriptRoot/stage-ci-artifacts.ps1" -Gate windows
+    $failedEvidence = Join-Path $root 'artifacts/ci-evidence/windows'
+    if (-not (Test-Path (Join-Path $failedEvidence 'desktop-smoke-diagnostics.txt'))) { throw 'Windows FAIL staging omitted available diagnostics.' }
+    if (-not (Test-Path (Join-Path $failedEvidence 'scenarios/Ready.json'))) { throw 'Windows FAIL staging omitted the available scenario.' }
+    if (@(Get-ChildItem (Join-Path $failedEvidence 'scenarios') -File -Filter *.json).Count -ne 1) { throw 'Windows FAIL staging required or created additional scenarios.' }
+    Write-Host 'Windows FAIL partial smoke diagnostics staging regression PASS'
 } finally {
     foreach ($item in $state) {
         if (Test-Path -LiteralPath $item.Path) { Remove-Item -LiteralPath $item.Path -Recurse -Force }

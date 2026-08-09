@@ -31,10 +31,16 @@ try{
  foreach($automationId in 'CompanyLegalNameInput','CompanyDisplayNameInput','SaveCompanyButton','CancelCompanyButton','BusinessProjectNameInput','BusinessProjectTypeInput','SaveBusinessProjectButton','CancelBusinessProjectButton'){if(-not$smokeSource.Contains("'$automationId'")){throw "Desktop smoke is missing stable AutomationId $automationId"}}
  Write-Host 'Desktop smoke interactive editor contract PASS'
  if($smokeSource.Contains("Get-NamedElements `$selector 'BusinessOS Smoke Updated'")){throw 'Desktop smoke uses a descendant name as the selected company contract'}
- $selectionHelper='(?s)function Get-SelectedAutomationItem\(\$Element\).*?SelectionPattern\]::Pattern.*?GetSelection\(\).*?function Test-SelectedAutomationItemName'
- $projectsSelection='(?s)BusinessProjectsCompanySelector.*?Test-SelectedAutomationItemName \$selector ''BusinessOS Smoke Updated'''
- if($smokeSource-notmatch$selectionHelper-or$smokeSource-notmatch$projectsSelection){throw 'Desktop smoke does not connect the BusinessProjects company selector to SelectionPattern.GetSelection()'}
- Write-Host 'Desktop smoke BusinessProjects selected company contract PASS'
+ $semanticHelper=[regex]::Match($smokeSource,'(?s)function Get-ComboBoxSemanticSelection\(\$Element, \[string\]\$ExpectedValue\) \{.*?^\}',[Text.RegularExpressions.RegexOptions]::Multiline).Value
+ if(-not$semanticHelper){throw 'Desktop smoke semantic selection helper is missing'}
+ foreach($contract in 'SelectionPattern\]::Pattern','GetSelection\(\)','ValuePattern\]::Pattern','TryGetCurrentPattern','SelectedItemCount -eq 1','SelectedItemNames\[0\] -eq \$ExpectedValue','Value -eq \$ExpectedValue','\$selectionMatches -or \$valueMatches'){if($semanticHelper-notmatch$contract){throw "Desktop smoke semantic selection helper is missing contract: $contract"}}
+ if($semanticHelper-match'\.SetValue\(|\.Expand\(|SelectionItemPattern|\.Select\('){throw 'Desktop smoke semantic selection verification mutates the company selector'}
+ $projectsSelection='(?s)BusinessProjectsCompanySelector.*?Get-ComboBoxSemanticSelection \$selector ''BusinessOS Smoke Updated''.*?\$semanticSelection\.IsExpected'
+ if($smokeSource-notmatch$projectsSelection){throw 'Desktop smoke does not use the read-only semantic result for the BusinessProjects company selector'}
+ $selectionExact=([pscustomobject]@{SelectionSupported=$true;SelectedItemCount=1;SelectedItemNames=@('expected');ValueSupported=$false;Value=$null});$valueExact=([pscustomobject]@{SelectionSupported=$false;SelectedItemCount=0;SelectedItemNames=@();ValueSupported=$true;Value='expected'});$neither=([pscustomobject]@{SelectionSupported=$true;SelectedItemCount=1;SelectedItemNames=@('other');ValueSupported=$true;Value='not expected'})
+ $evaluate={param($x)[bool](($x.SelectionSupported-and$x.SelectedItemCount-eq 1-and$x.SelectedItemNames[0]-eq'expected')-or($x.ValueSupported-and$x.Value-eq'expected'))}
+ if(-not(& $evaluate $selectionExact)-or-not(& $evaluate $valueExact)-or(& $evaluate $neither)){throw 'Desktop smoke semantic exact-match truth table failed'}
+ Write-Host 'Desktop smoke BusinessProjects semantic selected company contract PASS'
  $corruptions=@(
   @{Name='corrupt-trx';Setup={Set-Content "$trxDir/corrupt.trx" '<bad'}},
   @{Name='corrupt-vulnerabilities';Setup={Set-Content "$root/.cache/vulnerable-packages.json" '{bad'}},

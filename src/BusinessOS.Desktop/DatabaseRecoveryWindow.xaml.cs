@@ -223,7 +223,7 @@ public sealed class RecoveryBackupItem(CompaniesRecoveryBackup backup)
     public string StatusText { get; } = backup.StatusText;
     public string CreatedText { get; } = backup.CreatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
     public string SizeText { get; } = FormatSize(backup.SizeBytes);
-    public string AutomationName { get; } = $"Kopia zapasowa z {backup.CreatedAtUtc.ToLocalTime().ToString("f", CultureInfo.CurrentCulture)}, {(backup.IsRestorable ? "prawidłowa" : "nieprawidłowa")}";
+    public string AutomationName { get; } = $"Kopia zapasowa z {backup.CreatedAtUtc.ToLocalTime().ToString("f", CultureInfo.CurrentCulture)}, {(backup.IsRestorable ? "prawidłowa" : "nieprawidłowa")}, identyfikator {backup.BackupId}";
 
     private static string FormatSize(long bytes)
     {

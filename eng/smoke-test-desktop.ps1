@@ -505,16 +505,53 @@ function Measure-FinalWindowState($Process,[string]$ScenarioName) {
     }while($observed-lt$required-and(Get-Date)-lt$deadline)
     [pscustomobject]@{RequiredSamples=$required;ObservedConsecutiveSamples=$observed;Passed=$observed-ge$required;LastObservedWindowCounts=$last}
 }
-function Select-ValidRecoveryItem($Recovery) {
+function Select-RecoveryBackupItem($Recovery, [string]$ExpectedBackupId, [string]$ExpectedInvalidBackupId, [string]$Origin) {
     $list = Get-AutomationIdElement $Recovery 'RecoveryBackupList'
-    if ($null -eq $list) { throw 'Recovery backup list was not found.' }
-    $items = @($list.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
-        Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::ListItem })
-    $valid = @($items | Where-Object { $_.Current.Name -match 'prawidłowa' -and $_.Current.Name -notmatch 'nieprawidłowa' })
-    $invalid = @($items | Where-Object { $_.Current.Name -match 'nieprawidłowa' })
-    if ($items.Count -lt 2 -or $valid.Count -ne 1 -or $invalid.Count -lt 1) { throw "Unexpected recovery catalog: total=$($items.Count), valid=$($valid.Count), invalid=$($invalid.Count)." }
-    $valid[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
-    return @{ Total = $items.Count; Valid = $valid.Count; Invalid = $invalid.Count }
+    $items = if ($null -eq $list) { @() } else {
+        @($list.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition) |
+            Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::ListItem })
+    }
+    $catalog = @($items | ForEach-Object {
+        $name = $_.Current.Name
+        [pscustomobject]@{
+            Element = $_
+            Name = $name
+            AutomationId = $_.Current.AutomationId
+            HelpText = $_.Current.HelpText
+            ControlType = $_.Current.ControlType.ProgrammaticName
+            IsEnabled = $_.Current.IsEnabled
+            MatchesExpected = $name.EndsWith("identyfikator $ExpectedBackupId", [StringComparison]::Ordinal)
+            MatchesExpectedInvalid = $name.EndsWith("identyfikator $ExpectedInvalidBackupId", [StringComparison]::Ordinal)
+            IsValid = $name -match 'prawidłowa' -and $name -notmatch 'nieprawidłowa'
+            IsInvalid = $name -match 'nieprawidłowa'
+        }
+    })
+    $valid = @($catalog | Where-Object IsValid)
+    $invalid = @($catalog | Where-Object IsInvalid)
+    $expected = @($catalog | Where-Object MatchesExpected)
+    $expectedInvalid = @($catalog | Where-Object MatchesExpectedInvalid)
+    $selectedIdentity = '<none>'
+    $failure = $null
+    $selectionPattern = $null
+    if ($null -eq $list) { $failure = 'Recovery backup list was not found.' }
+    elseif ($expected.Count -ne 1) { $failure = "Expected backup match count must be exactly one; found $($expected.Count)." }
+    elseif (-not $expected[0].IsValid -or -not $expected[0].IsEnabled) { $failure = 'Expected backup is not valid, restorable, and enabled.' }
+    elseif ($expectedInvalid.Count -ne 1 -or -not $expectedInvalid[0].IsInvalid) { $failure = "Expected invalid fixture backup was not uniquely classified as invalid; matches=$($expectedInvalid.Count)." }
+    elseif (-not $expected[0].Element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionPattern)) { $failure = 'Expected backup does not support SelectionItemPattern.' }
+    if ($null -eq $failure) {
+        $selectionPattern.Select()
+        $selectedIdentity = $expected[0].Name
+    }
+    Add-Content $diagnostics "Recovery catalog diagnostics:`nScenario: $Scenario`nOrigin: $Origin`nExpected fixture BackupId: $ExpectedBackupId`nExpected invalid BackupId: $ExpectedInvalidBackupId`nTotal count: $($catalog.Count)`nValid count: $($valid.Count)`nInvalid count: $($invalid.Count)"
+    foreach ($item in $catalog) {
+        Add-Content $diagnostics "ListItem: Name='$($item.Name)'; AutomationId='$($item.AutomationId)'; HelpText='$($item.HelpText)'; ControlType='$($item.ControlType)'; IsEnabled=$($item.IsEnabled); MatchesExpected=$($item.MatchesExpected); MatchesExpectedInvalid=$($item.MatchesExpectedInvalid); IsValid=$($item.IsValid); IsInvalid=$($item.IsInvalid)"
+    }
+    Add-Content $diagnostics "Expected backup match count: $($expected.Count)`nSelected expected backup identity: $selectedIdentity"
+    if ($null -ne $failure) {
+        Write-SmokeDiagnosticsToHost
+        throw "$failure Catalog: total=$($catalog.Count), valid=$($valid.Count), invalid=$($invalid.Count), expectedMatches=$($expected.Count)."
+    }
+    return @{ Total = $catalog.Count; Valid = $valid.Count; Invalid = $invalid.Count; ExpectedMatchCount = $expected.Count; SelectedExpectedBackupIdentity = $selectedIdentity }
 }
 function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
     Add-Content $diagnostics "FixturePrepared: True`nRecoveryOrigin: $Origin"
@@ -528,10 +565,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
     }
     $restore = Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton'
     if ($null -eq $restore -or $restore.Current.IsEnabled) { throw 'Restore must be disabled without selection.' }
-    $counts = Select-ValidRecoveryItem $recovery
-    if ($counts.Valid -ne $fixture.ExpectedValidBackupCount -or $counts.Invalid -ne $fixture.ExpectedInvalidBackupCount) {
-        throw "Recovery catalog does not match fixture: valid=$($counts.Valid)/$($fixture.ExpectedValidBackupCount), invalid=$($counts.Invalid)/$($fixture.ExpectedInvalidBackupCount)."
-    }
+    $counts = Select-RecoveryBackupItem $recovery $fixture.BackupId $fixture.InvalidBackupId $Origin
     Add-Content $diagnostics "CatalogLoaded: True`nCatalogItemCount: $($counts.Total)`nValidBackupCount: $($counts.Valid)`nInvalidBackupCount: $($counts.Invalid)`nRestoreDisabledWithoutSelection: True";$script:catalogLoaded=$true;$script:catalogItemCount=$counts.Total;$script:validBackupCount=$counts.Valid;$script:invalidBackupCount=$counts.Invalid;$script:restoreDisabledWithoutSelection=$true
     if (-not (Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton').Current.IsEnabled) { throw 'Restore did not enable for valid backup.' }
 
@@ -554,7 +588,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
         Invoke-AutomationIdButton $main 'OpenRecoveryFromMainButton'
         $recovery = Wait-RecoveryWindow $Process
         Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Second recovery catalog did not load.' -Condition { (Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton').Current.IsEnabled }
-        $null = Select-ValidRecoveryItem $recovery
+        $null = Select-RecoveryBackupItem $recovery $fixture.BackupId $fixture.InvalidBackupId $Origin
     } else {
         Invoke-AutomationIdButton $recovery 'BackFromRecoveryButton'
         Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Failure window did not become stable after Back.' -Condition {
@@ -563,7 +597,7 @@ function Invoke-RecoverySmoke($InitialRoot, $Process, [string]$Origin) {
         $failureWindow=(Get-ProcessWindows $Process.Id)[0];$script:backNavigationPassed=$true;Add-Content $diagnostics 'BackNavigationPassed: True'
         Invoke-AutomationIdButton $failureWindow 'OpenRecoveryFromFailureButton';$recovery=Wait-RecoveryWindow $Process
         Wait-BusinessOSCondition -TimeoutSeconds 30 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Second recovery catalog did not load.' -Condition { (Get-AutomationIdElement $recovery 'RefreshRecoveryCatalogButton').Current.IsEnabled }
-        $null=Select-ValidRecoveryItem $recovery
+        $null=Select-RecoveryBackupItem $recovery $fixture.BackupId $fixture.InvalidBackupId $Origin
         Invoke-AutomationIdButton $recovery 'RestoreSelectedBackupButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Confirmation dialog did not open.' -Condition {$null-ne(Get-AutomationIdElement $recovery 'CancelRestoreButton')}
         Invoke-AutomationIdButton $recovery 'CancelRestoreButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 5 -TimeoutMessage 'Confirmation cancellation did not stabilize.' -Condition {$null-eq(Get-AutomationIdElement $recovery 'ConfirmRestoreDialog') -and (Get-AutomationIdElement $recovery 'RestoreSelectedBackupButton').Current.IsEnabled}
         $script:confirmationCancelPassed=$true;Add-Content $diagnostics 'ConfirmationCancelPassed: True'

@@ -51,7 +51,7 @@ await using (var provider = Services(databasePath, backupDirectory))
         await context.SaveChangesAsync();
         var invalidId = CompaniesBackupFileName.Create(DateTimeOffset.UtcNow.AddSeconds(1), Guid.NewGuid());
         await File.WriteAllTextAsync(Path.Combine(backupDirectory, invalidId), "not a sqlite database");
-        Write(new { DatabasePath = databasePath, BackupDirectory = backupDirectory, BackupId = backupId, InvalidBackupId = invalidId, ExpectedValidBackupCount = 1, ExpectedInvalidBackupCount = 1, ExpectedConcurrencyToken = 1L });
+        Write(new { DatabasePath = databasePath, BackupDirectory = backupDirectory, BackupId = backupId, InvalidBackupId = invalidId, ExpectedConcurrencyToken = 1L });
         return;
     }
 
@@ -61,7 +61,7 @@ await using (var provider = Services(databasePath, backupDirectory))
         await File.WriteAllTextAsync(Path.Combine(backupDirectory, invalidId), "not a sqlite database");
         if (Directory.Exists(dataDirectory)) Directory.Delete(dataDirectory, true);
         await File.WriteAllTextAsync(dataDirectory, "blocked database directory");
-        Write(new { DatabasePath = databasePath, BlockedPath = dataDirectory, BackupDirectory = backupDirectory, BackupId = backupId, InvalidBackupId = invalidId, ExpectedValidBackupCount = 1, ExpectedInvalidBackupCount = 1, ExpectedConcurrencyToken = 1L });
+        Write(new { DatabasePath = databasePath, BlockedPath = dataDirectory, BackupDirectory = backupDirectory, BackupId = backupId, InvalidBackupId = invalidId, ExpectedConcurrencyToken = 1L });
         return;
     }
 }

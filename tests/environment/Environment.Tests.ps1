@@ -161,6 +161,28 @@ Assert 'desktop Ready smoke stabilizes BusinessProjects re-entry after the compa
     $helper = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-BusinessProjectStatusReady' }, $true))[0]
     if ($null -eq $helper -or $helper.Extent.Text -notmatch 'RequiredConsecutiveSuccesses\s+3' -or $helper.Extent.Text -notmatch 'Write-BusinessProjectStatusTimeoutDiagnostics' -or $helper.Extent.Text -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'stable project wait does not provide consecutive semantic readiness and CI diagnostics' }
 }
+Assert 'recovery smoke selects the exact fixture backup through semantic UIA identity' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null; $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+    $selector = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Select-RecoveryBackupItem' }, $true))
+    if ($selector.Count -ne 1) { throw 'semantic recovery selector must be defined exactly once' }
+    $selectorSource = $selector[0].Extent.Text
+    foreach ($required in '$ExpectedBackupId','$ExpectedInvalidBackupId','RecoveryBackupList','ListItem','EndsWith','MatchesExpected','IsValid','IsInvalid','Expected backup match count','SelectionItemPattern','Write-SmokeDiagnosticsToHost','Scenario:','Origin:','Expected fixture BackupId:','Expected invalid BackupId:','Total count:','Valid count:','Invalid count:','Name=','AutomationId=','HelpText=','ControlType=','IsEnabled=','Selected expected backup identity:') {
+        if (-not $selectorSource.Contains($required, [StringComparison]::Ordinal)) { throw "semantic recovery selector omits contract: $required" }
+    }
+    if ($selectorSource -notmatch '\$expected\.Count\s+-ne\s+1' -or $selectorSource -notmatch '-not\s+\$expected\[0\]\.IsValid') { throw 'selector does not require one valid/restorable expected backup' }
+    if ($selectorSource -match '\$valid\[0\]|IsOffscreen|BoundingRectangle|Start-Sleep') { throw 'selector uses order, viewport geometry, or sleep instead of semantic identity' }
+    $recovery = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-RecoverySmoke' }, $true))[0].Extent.Text
+    $calls = [regex]::Matches($recovery, 'Select-RecoveryBackupItem\s+\$recovery\s+\$fixture\.BackupId\s+\$fixture\.InvalidBackupId\s+\$Origin')
+    if ($calls.Count -ne 3) { throw "expected fixture identity in initial and both origin-specific second catalog paths; found $($calls.Count) calls" }
+    if ($recovery -match 'ExpectedValidBackupCount|ExpectedInvalidBackupCount|Select-ValidRecoveryItem|\$valid\[0\]') { throw 'recovery flow retains brittle count/order selection' }
+    if ($recovery -match 'IsOffscreen|BoundingRectangle|Start-Sleep') { throw 'recovery flow added a viewport or sleep workaround' }
+    foreach ($required in "CompanyDisplayName -ne 'Selected Backup Company'","QuickCheck -ne 'ok'",'validate-restored') { if (-not $recovery.Contains($required, [StringComparison]::Ordinal)) { throw "post-restore validation omits: $required" } }
+    $viewModel = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw
+    if ($viewModel -notmatch 'AutomationName.*backup\.BackupId' -or $viewModel -notmatch 'prawidłowa.*nieprawidłowa') { throw 'recovery item UIA name does not expose readable status and exact BackupId' }
+}
 Assert 'recovery shutdown preserves UI context and precise internal transition' {
     $gate = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.AppHost/DeferredShutdownGate.cs') -Raw
     $window = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw
@@ -213,7 +235,8 @@ Assert 'recovery smoke fixture and cancellation stabilization are coherent' {
     $fixture = Get-Content -LiteralPath (Join-Path $RepoRoot 'tests/BusinessOS.RecoverySmokeFixture/Program.cs') -Raw
     $smoke = Get-Content -LiteralPath (Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1') -Raw
     $startupBranch = $fixture.Substring($fixture.IndexOf('command == "prepare-startup-failure"', [StringComparison]::Ordinal))
-    if (-not $startupBranch.Contains('InvalidBackupId', [StringComparison]::Ordinal) -or -not $startupBranch.Contains('ExpectedInvalidBackupCount = 1', [StringComparison]::Ordinal)) { throw 'startup-failure fixture does not create and report its invalid backup' }
+    if (-not $startupBranch.Contains('InvalidBackupId', [StringComparison]::Ordinal)) { throw 'startup-failure fixture does not create and report its invalid backup identity' }
+    if ($fixture.Contains('ExpectedValidBackupCount', [StringComparison]::Ordinal) -or $fixture.Contains('ExpectedInvalidBackupCount', [StringComparison]::Ordinal)) { throw 'recovery fixture still exposes brittle global catalog counts' }
     $cancel = $smoke.IndexOf("Invoke-AutomationIdButton `$recovery 'CancelRestoreButton'", [StringComparison]::Ordinal)
     $stabilized = $smoke.IndexOf("Confirmation dialog did not close cleanly after cancellation.", [StringComparison]::Ordinal)
     $back = $smoke.IndexOf("Invoke-AutomationIdButton `$recovery 'BackFromRecoveryButton'", [StringComparison]::Ordinal)

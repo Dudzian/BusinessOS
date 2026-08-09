@@ -1,5 +1,6 @@
 using System.Reflection;
 using BusinessOS.Modules.Budgeting.Application;
+using BusinessOS.Modules.Budgeting.Infrastructure.Persistence;
 using BusinessOS.Modules.BusinessProjects.Application;
 using BusinessOS.Modules.BusinessProjects.Infrastructure.Persistence;
 using BusinessOS.Modules.Companies.Application;
@@ -40,6 +41,7 @@ public static class BusinessOsHost
                 projectsDatabasePath = string.IsNullOrWhiteSpace(projectsDatabasePath)
                     ? Path.Combine(localData, "BusinessOS", "Data", "businessos.db") : projectsDatabasePath;
                 services.AddBusinessProjectsPersistence(projectsDatabasePath);
+                services.AddBudgetingPersistence(projectsDatabasePath);
                 services.AddSingleton<IDatabaseMigrationHistorySource, BusinessProjectsMigrationHistorySource>();
                 services.AddTransient<IBusinessProjectCompanyAccess, BusinessProjectCompanyAccess>();
                 services.AddTransient<ICompanyArchiveConstraint, BusinessProjectsCompanyArchiveConstraint>();
@@ -47,6 +49,7 @@ public static class BusinessOsHost
                 services.AddSingleton<ICompaniesRecoveryWorkflow, CompaniesRecoveryWorkflow>();
                 services.AddBusinessProjectsModule();
                 services.AddBudgetingModule();
+                services.AddTransient<IBudgetingProjectLookup, BudgetingProjectLookup>();
             })
             .Build();
     }
@@ -60,6 +63,37 @@ public static class BusinessOsHost
         }
 
         return value;
+    }
+}
+
+internal sealed class BudgetingProjectLookup(IBusinessProjectsCrudService projects, ICompaniesLookupService companies) : IBudgetingProjectLookup
+{
+    public async Task<BudgetProjectInfo?> GetAsync(Guid projectId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var project = await projects.GetAsync(projectId, cancellationToken);
+            return project is null ? null : new(project.Id, project.Name, project.BaseCurrency,
+                project.Status is not (BusinessProjectStatusValue.Closed or BusinessProjectStatusValue.Cancelled));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (BusinessProjectsReadException exception) { throw new BudgetingProjectLookupException("Business project lookup failed.", exception); }
+        catch (CompaniesLookupException exception) { throw new BudgetingProjectLookupException("Company lookup failed.", exception); }
+    }
+
+    public async Task<IReadOnlyList<BudgetProjectInfo>> ListAvailableAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = new List<BudgetProjectInfo>();
+            foreach (var company in await companies.ListActiveAsync(cancellationToken))
+                foreach (var project in await projects.ListAsync(company.Id, null, cancellationToken))
+                    if (project.Status is not (BusinessProjectStatusValue.Closed or BusinessProjectStatusValue.Cancelled)) result.Add(new(project.Id, project.Name, project.BaseCurrency, true));
+            return result.OrderBy(x => x.Name, StringComparer.Ordinal).ThenBy(x => x.Id).ToArray();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (BusinessProjectsReadException exception) { throw new BudgetingProjectLookupException("Business project lookup failed.", exception); }
+        catch (CompaniesLookupException exception) { throw new BudgetingProjectLookupException("Company lookup failed.", exception); }
     }
 }
 
@@ -85,6 +119,7 @@ internal sealed class BusinessProjectCompanyAccess(ICompaniesLookupService compa
             throw new BusinessProjectCompanyAccessException("Company access lookup failed.", exception);
         }
     }
+
 }
 
 internal sealed class BusinessProjectsCompanyArchiveConstraint(IBusinessProjectsCompanyConstraintReader projects) : ICompanyArchiveConstraint

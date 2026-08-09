@@ -1,5 +1,7 @@
 # BusinessOS
 
+Block 3A (BusinessProjects) is complete. Block 3B1 (versioned project budgeting) is implemented and current; actual costs, forecasting, analytics, cash flow, and invoice ingestion remain deferred.
+
 BusinessOS is a local-first Windows desktop application foundation.
 
 ## Persistence blocks

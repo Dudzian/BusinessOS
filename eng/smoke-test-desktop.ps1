@@ -110,6 +110,28 @@ function Get-ComboBoxSemanticSelection($Element, [string]$ExpectedValue) {
     $result.IsExpected = $selectionMatches -or $valueMatches
     return [pscustomobject]$result
 }
+function Get-BusinessProjectsReadinessState($Main, [string]$ExpectedCompany) {
+    $selector = Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector'
+    $semanticSelection = Get-ComboBoxSemanticSelection $selector $ExpectedCompany
+    $add = Get-AutomationIdElement $Main 'AddBusinessProjectButton'
+    $empty = Get-AutomationIdElement $Main 'BusinessProjectsEmptyState'
+    $selectorVisible = Test-Visible $selector
+    $addVisible = Test-Visible $add
+    $addEnabled = $null -ne $add -and $add.Current.IsEnabled
+    $emptyStateVisible = Test-Visible $empty
+    [pscustomobject]@{
+        Selector = $selector
+        SemanticSelection = $semanticSelection
+        AddButton = $add
+        EmptyState = $empty
+        SelectorVisible = $selectorVisible
+        ExpectedSemanticSelection = $semanticSelection.IsExpected
+        AddButtonVisible = $addVisible
+        AddButtonEnabled = $addEnabled
+        EmptyStateVisible = $emptyStateVisible
+        IsReady = $selectorVisible -and $semanticSelection.IsExpected -and $addVisible -and $addEnabled -and $emptyStateVisible
+    }
+}
 function Test-CompanyEditorOpen($Main) {
     $legalName = Get-AutomationIdElement $Main 'CompanyLegalNameInput'
     $displayName = Get-AutomationIdElement $Main 'CompanyDisplayNameInput'
@@ -176,17 +198,19 @@ function Write-UpdateTimeoutDiagnostics($Main, [ValidateSet('Companies', 'Busine
 }
 function Write-BusinessProjectsLoadTimeoutDiagnostics($Main) {
     $panel = Get-AutomationIdElement $Main 'BusinessProjectsSectionPanel'
-    $selector = Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector'
-    $add = Get-AutomationIdElement $Main 'AddBusinessProjectButton'
-    $empty = Get-AutomationIdElement $Main 'BusinessProjectsEmptyState'
+    $readiness = Get-BusinessProjectsReadinessState $Main 'BusinessOS Smoke Updated'
+    $selector = $readiness.Selector
+    $add = $readiness.AddButton
+    $empty = $readiness.EmptyState
     $message = Get-AutomationIdElement $Main 'BusinessProjectOperationMessage'
     $companies = Get-AutomationIdElement $Main 'CompaniesList'
-    $semanticSelection = Get-ComboBoxSemanticSelection $selector 'BusinessOS Smoke Updated'
+    $semanticSelection = $readiness.SemanticSelection
     $oldCompanyCount = if ($null -eq $companies) { 0 } else { (Get-NamedElements $companies 'BusinessOS Smoke').Count }
     $updatedCompanyCount = if ($null -eq $companies) { 0 } else { (Get-NamedElements $companies 'BusinessOS Smoke Updated').Count }
     Add-Content $diagnostics 'Projects load timeout diagnostics:'
     Add-Content $diagnostics "Scenario: $Scenario"
-    Add-Content $diagnostics "BusinessProjectsSectionPanel: Found=$($null -ne $panel); IsOffscreen=$(if ($null -eq $panel) { 'n/a' } else { $panel.Current.IsOffscreen })"
+    Add-Content $diagnostics "Readiness conditions: selector visible=$($readiness.SelectorVisible); expected semantic selection=$($readiness.ExpectedSemanticSelection); add button visible=$($readiness.AddButtonVisible); add button enabled=$($readiness.AddButtonEnabled); empty state visible=$($readiness.EmptyStateVisible); ready=$($readiness.IsReady)"
+    Add-Content $diagnostics "BusinessProjectsSectionPanel (informational only): Found=$($null -ne $panel); IsOffscreen=$(if ($null -eq $panel) { 'n/a' } else { $panel.Current.IsOffscreen })"
     Add-Content $diagnostics "BusinessProjectsCompanySelector: Found=$($null -ne $selector); IsEnabled=$(if ($null -eq $selector) { 'n/a' } else { $selector.Current.IsEnabled }); IsOffscreen=$(if ($null -eq $selector) { 'n/a' } else { $selector.Current.IsOffscreen }); ControlType=$(if ($null -eq $selector) { 'n/a' } else { $selector.Current.ControlType.ProgrammaticName }); Current.Name=$(if ($null -eq $selector) { 'n/a' } else { $selector.Current.Name })"
     Add-Content $diagnostics "SelectionPattern: supported=$($semanticSelection.SelectionSupported); selected item count=$($semanticSelection.SelectedItemCount); selected item names=$($semanticSelection.SelectedItemNames -join ', '); error=$(if ($semanticSelection.SelectionError) { $semanticSelection.SelectionError } else { 'none' })"
     Add-Content $diagnostics "ValuePattern: supported=$($semanticSelection.ValueSupported); current value=$($semanticSelection.Value); IsReadOnly=$(if ($null -eq $semanticSelection.ValueIsReadOnly) { 'n/a' } else { $semanticSelection.ValueIsReadOnly }); error=$(if ($semanticSelection.ValueError) { $semanticSelection.ValueError } else { 'none' })"
@@ -262,9 +286,7 @@ function Invoke-CompaniesCrudSmoke($Main) {
     Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'
     try {
         Wait-BusinessOSCondition -TimeoutSeconds 15 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Projects section did not load the created company.' -Condition {
-            $panel=Get-AutomationIdElement $Main 'BusinessProjectsSectionPanel'; $selector=Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector'; $add=Get-AutomationIdElement $Main 'AddBusinessProjectButton'
-            $semanticSelection = Get-ComboBoxSemanticSelection $selector 'BusinessOS Smoke Updated'
-            return (Test-Visible $panel) -and (Test-Visible $selector) -and $semanticSelection.IsExpected -and $null-ne$add -and $add.Current.IsEnabled -and (Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectsEmptyState'))
+            return (Get-BusinessProjectsReadinessState $Main 'BusinessOS Smoke Updated').IsReady
         }
     } catch {
         Write-BusinessProjectsLoadTimeoutDiagnostics $Main

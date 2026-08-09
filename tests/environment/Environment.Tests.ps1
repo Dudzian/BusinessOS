@@ -50,6 +50,31 @@ Assert 'desktop smoke implements complete recovery scenarios' {
     }
     if (-not $source.Contains("`$shutdownMethod = 'Kill'", [StringComparison]::Ordinal) -or -not $source.Contains('ShutdownMethod: $shutdownMethod', [StringComparison]::Ordinal)) { throw 'recovery smoke does not diagnose emergency Kill' }
 }
+Assert 'desktop Ready smoke uses semantic BusinessProjects controls without gating on its layout panel' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+
+    $readinessFunction = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-BusinessProjectsReadinessState'
+    }, $true))
+    if ($readinessFunction.Count -ne 1) { throw 'desktop smoke must define exactly one BusinessProjects readiness helper' }
+    $readiness = $readinessFunction[0].Extent.Text
+    foreach ($required in 'BusinessProjectsCompanySelector','Get-ComboBoxSemanticSelection','ExpectedSemanticSelection','AddBusinessProjectButton','AddButtonVisible','AddButtonEnabled','BusinessProjectsEmptyState','EmptyStateVisible') {
+        if (-not $readiness.Contains($required, [StringComparison]::Ordinal)) { throw "BusinessProjects readiness is missing semantic condition: $required" }
+    }
+    if ($readiness.Contains('BusinessProjectsSectionPanel', [StringComparison]::Ordinal)) { throw 'BusinessProjects readiness still depends on the layout-only section panel' }
+    if ($readiness -notmatch 'IsReady\s*=\s*\$selectorVisible\s+-and\s+\$semanticSelection\.IsExpected\s+-and\s+\$addVisible\s+-and\s+\$addEnabled\s+-and\s+\$emptyStateVisible') {
+        throw 'BusinessProjects readiness does not require all semantic visible/enabled/selection signals'
+    }
+
+    $source = $ast.Extent.Text
+    if ($source -notmatch "Get-BusinessProjectsReadinessState\s+\`$Main\s+'BusinessOS Smoke Updated'\)\.IsReady") { throw 'Ready scenario does not gate on the semantic readiness helper and expected company' }
+    if ($source -notmatch 'BusinessProjectsSectionPanel \(informational only\)') { throw 'layout panel is not retained as explicitly informational timeout diagnostics' }
+}
 Assert 'recovery shutdown preserves UI context and precise internal transition' {
     $gate = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.AppHost/DeferredShutdownGate.cs') -Raw
     $window = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw

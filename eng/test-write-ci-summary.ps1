@@ -28,7 +28,10 @@ try{
  Write-Host 'Exported fallback evidence preserves gate failure PASS'
  $smokeSource=Get-Content "$PSScriptRoot/smoke-test-desktop.ps1" -Raw
  if($smokeSource-match"Get-AutomationIdElement[^`r`n]*CompanyEditorPanel"-or$smokeSource-match"Get-AutomationIdElement[^`r`n]*BusinessProjectEditorPanel"){throw 'Desktop smoke depends on a layout editor panel'}
- foreach($automationId in 'CompanyLegalNameInput','CompanyDisplayNameInput','SaveCompanyButton','CancelCompanyButton','BusinessProjectNameInput','BusinessProjectTypeInput','SaveBusinessProjectButton','CancelBusinessProjectButton'){if(-not$smokeSource.Contains("'$automationId'")){throw "Desktop smoke is missing stable AutomationId $automationId"}}
+ foreach($automationId in 'CompanyLegalNameInput','CompanyDisplayNameInput','SaveCompanyButton','CancelCompanyButton','BusinessProjectNameInput','BusinessProjectTypeInput','BusinessProjectLocationInput','BusinessProjectCurrencyInput','SaveBusinessProjectButton','CancelBusinessProjectButton'){if(-not$smokeSource.Contains("'$automationId'")){throw "Desktop smoke is missing stable AutomationId $automationId"}}
+ $projectEditor=[regex]::Match($smokeSource,'(?s)function Test-BusinessProjectEditorOpen\(\$Main\) \{.*?^\}',[Text.RegularExpressions.RegexOptions]::Multiline).Value
+ if(-not$projectEditor-or$projectEditor-match'Test-Visible|IsOffscreen|BusinessProjectEditorPanel'-or$projectEditor-notmatch'Test-AutomationValueInputReady'){throw 'Desktop smoke BusinessProject editor readiness is not capability-based'}
+ foreach($contract in 'ValuePatternSupported=','ControlType=','Write-SmokeDiagnosticsToHost','BusinessProjectsCompanySelector','BusinessProjectOperationMessage'){if(-not$smokeSource.Contains($contract)){throw "Desktop smoke editor diagnostics are missing contract: $contract"}}
  Write-Host 'Desktop smoke interactive editor contract PASS'
  if($smokeSource.Contains("Get-NamedElements `$selector 'BusinessOS Smoke Updated'")){throw 'Desktop smoke uses a descendant name as the selected company contract'}
  $semanticHelper=[regex]::Match($smokeSource,'(?s)function Get-ComboBoxSemanticSelection\(\$Element, \[string\]\$ExpectedValue\) \{.*?^\}',[Text.RegularExpressions.RegexOptions]::Multiline).Value

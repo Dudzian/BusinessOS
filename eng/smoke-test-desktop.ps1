@@ -82,6 +82,13 @@ function Select-ContainingListItem($Element) {
     $current.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
 }
 function Test-Visible($Element) { $null -ne $Element -and -not $Element.Current.IsOffscreen }
+function Test-AutomationValueInputReady($Element) {
+    if ($null -eq $Element -or -not $Element.Current.IsEnabled) { return $false }
+    try {
+        $valuePattern = $null
+        return $Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern) -and -not $valuePattern.Current.IsReadOnly
+    } catch { return $false }
+}
 function Get-ComboBoxSemanticSelection($Element, [string]$ExpectedValue) {
     $result = [ordered]@{
         SelectionSupported = $false; SelectedItemCount = 0; SelectedItemNames = @(); SelectionError = $null
@@ -145,26 +152,46 @@ function Test-CompanyEditorClosed($Main) {
         Measure-Object | Select-Object -ExpandProperty Count | ForEach-Object { $_ -eq 0 }
 }
 function Test-BusinessProjectEditorOpen($Main) {
-    $name = Get-AutomationIdElement $Main 'BusinessProjectNameInput'
-    $type = Get-AutomationIdElement $Main 'BusinessProjectTypeInput'
+    $inputsReady = @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'BusinessProjectLocationInput', 'BusinessProjectCurrencyInput') |
+        Where-Object { -not (Test-AutomationValueInputReady (Get-AutomationIdElement $Main $_)) } |
+        Measure-Object | Select-Object -ExpandProperty Count | ForEach-Object { $_ -eq 0 }
     $save = Get-AutomationIdElement $Main 'SaveBusinessProjectButton'
     $cancel = Get-AutomationIdElement $Main 'CancelBusinessProjectButton'
     $filter = Get-AutomationIdElement $Main 'BusinessProjectsStatusFilter'
-    (Test-Visible $name) -and (Test-Visible $type) -and $null -ne $save -and $save.Current.IsEnabled -and $null -ne $cancel -and $cancel.Current.IsEnabled -and $null -ne $filter -and -not $filter.Current.IsEnabled
+    $inputsReady -and $null -ne $save -and $save.Current.IsEnabled -and $null -ne $cancel -and $cancel.Current.IsEnabled -and $null -ne $filter -and -not $filter.Current.IsEnabled
 }
 function Test-BusinessProjectEditorClosed($Main) {
-    @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'SaveBusinessProjectButton', 'CancelBusinessProjectButton') |
-        Where-Object { Test-Visible (Get-AutomationIdElement $Main $_) } |
-        Measure-Object | Select-Object -ExpandProperty Count | ForEach-Object { $_ -eq 0 }
+    $save = Get-AutomationIdElement $Main 'SaveBusinessProjectButton'
+    $cancel = Get-AutomationIdElement $Main 'CancelBusinessProjectButton'
+    $filter = Get-AutomationIdElement $Main 'BusinessProjectsStatusFilter'
+    $add = Get-AutomationIdElement $Main 'AddBusinessProjectButton'
+    ($null -eq $save -or -not $save.Current.IsEnabled) -and
+        ($null -eq $cancel -or -not $cancel.Current.IsEnabled) -and
+        $null -ne $filter -and $filter.Current.IsEnabled -and
+        $null -ne $add -and $add.Current.IsEnabled
 }
-function Format-AutomationElementState($Element) {
-    if ($null -eq $Element) { return 'Found=False; IsEnabled=n/a; IsOffscreen=n/a' }
-    "Found=True; IsEnabled=$($Element.Current.IsEnabled); IsOffscreen=$($Element.Current.IsOffscreen)"
+function Format-AutomationElementState($Element, [bool]$IncludeValuePattern = $false) {
+    if ($null -eq $Element) { return "Found=False; IsEnabled=n/a; IsOffscreen=n/a; ControlType=n/a$(if ($IncludeValuePattern) { '; ValuePatternSupported=n/a' })" }
+    $valuePatternState = ''
+    if ($IncludeValuePattern) {
+        try {
+            $valuePattern = $null
+            $supported = $Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)
+            $isReadOnly = if ($supported) { $valuePattern.Current.IsReadOnly } else { 'n/a' }
+            $valuePatternState = "; ValuePatternSupported=$supported; ValuePatternIsReadOnly=$isReadOnly"
+        } catch { $valuePatternState = "; ValuePatternSupported=False; ValuePatternError=$($_.Exception.GetType().Name)" }
+    }
+    "Found=True; IsEnabled=$($Element.Current.IsEnabled); IsOffscreen=$($Element.Current.IsOffscreen); ControlType=$($Element.Current.ControlType.ProgrammaticName)$valuePatternState"
 }
-function Write-EditorTimeoutDiagnostics($Main, [string]$ExpectedAutomationId, [string[]]$EditorAutomationIds) {
+function Write-EditorTimeoutDiagnostics($Main, [ValidateSet('Company', 'BusinessProject')]$Editor, [string]$ExpectedAutomationId, [string[]]$EditorAutomationIds) {
     Add-Content $diagnostics "Editor timeout scenario: $Scenario"
-    Add-Content $diagnostics "Expected AutomationId: $ExpectedAutomationId; $(Format-AutomationElementState (Get-AutomationIdElement $Main $ExpectedAutomationId))"
-    foreach ($id in @('AddCompanyButton', 'CompaniesSectionPanel', 'CompanyOperationMessage')) {
+    $valueInputIds = if ($Editor -eq 'BusinessProject') { @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'BusinessProjectLocationInput', 'BusinessProjectCurrencyInput') } else { @('CompanyLegalNameInput', 'CompanyDisplayNameInput') }
+    Add-Content $diagnostics "Expected AutomationId: $ExpectedAutomationId"
+    foreach ($id in $EditorAutomationIds) {
+        Add-Content $diagnostics "$id state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id) ($id -in $valueInputIds))"
+    }
+    $contextIds = if ($Editor -eq 'BusinessProject') { @('AddBusinessProjectButton', 'BusinessProjectsCompanySelector', 'BusinessProjectsStatusFilter', 'BusinessProjectOperationMessage') } else { @('AddCompanyButton', 'CompaniesSectionPanel', 'CompanyOperationMessage') }
+    foreach ($id in $contextIds) {
         Add-Content $diagnostics "$id state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id))"
     }
     $foundIds = @($EditorAutomationIds | Where-Object { $null -ne (Get-AutomationIdElement $Main $_) })
@@ -227,7 +254,7 @@ function Write-SmokeDiagnosticsToHost {
     Write-Host '--- END DESKTOP SMOKE DIAGNOSTICS ---'
 }
 function Wait-EditorOpen($Main, [ValidateSet('Company', 'BusinessProject')]$Editor, [string]$Invocation) {
-    $ids = if ($Editor -eq 'Company') { @('CompanyLegalNameInput', 'CompanyDisplayNameInput', 'SaveCompanyButton', 'CancelCompanyButton') } else { @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'SaveBusinessProjectButton', 'CancelBusinessProjectButton', 'BusinessProjectsStatusFilter') }
+    $ids = if ($Editor -eq 'Company') { @('CompanyLegalNameInput', 'CompanyDisplayNameInput', 'SaveCompanyButton', 'CancelCompanyButton') } else { @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'BusinessProjectLocationInput', 'BusinessProjectCurrencyInput', 'SaveBusinessProjectButton', 'CancelBusinessProjectButton', 'BusinessProjectsStatusFilter') }
     try {
         Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage "$Editor editor did not expose its interactive controls after $Invocation invocation." -Condition {
             if ($Editor -eq 'Company') { Test-CompanyEditorOpen $Main } else { Test-BusinessProjectEditorOpen $Main }
@@ -235,10 +262,16 @@ function Wait-EditorOpen($Main, [ValidateSet('Company', 'BusinessProject')]$Edit
     } catch {
         $missing = @($ids | Where-Object {
             $element = Get-AutomationIdElement $Main $_
-            $null -eq $element -or $element.Current.IsOffscreen -or (($_ -like 'Save*' -or $_ -like 'Cancel*') -and -not $element.Current.IsEnabled) -or ($_ -eq 'BusinessProjectsStatusFilter' -and $element.Current.IsEnabled)
+            $null -eq $element -or
+                ($Editor -eq 'BusinessProject' -and $_ -like 'BusinessProject*Input' -and -not (Test-AutomationValueInputReady $element)) -or
+                ($Editor -eq 'Company' -and $element.Current.IsOffscreen) -or
+                (($_ -like 'Save*' -or $_ -like 'Cancel*') -and -not $element.Current.IsEnabled) -or
+                ($_ -eq 'BusinessProjectsStatusFilter' -and $element.Current.IsEnabled)
         })[0]
-        Write-EditorTimeoutDiagnostics $Main $missing $ids
-        throw "$Editor editor did not expose $missing after $Invocation invocation."
+        if (-not $missing) { $missing = '<semantic editor contract>' }
+        Write-EditorTimeoutDiagnostics $Main $Editor $missing $ids
+        Write-SmokeDiagnosticsToHost
+        throw "$Editor editor did not satisfy the semantic readiness contract after $Invocation invocation; first failing control: $missing."
     }
 }
 function Get-NamedElements($Root, [string]$Name) {

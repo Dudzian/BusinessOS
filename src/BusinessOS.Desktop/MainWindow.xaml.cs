@@ -71,7 +71,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         var name = Budgeting.SelectedBudget?.Name; if (activate) Budgeting.OpenActivateDialog(); else Budgeting.OpenArchiveDialog(); if (!Budgeting.IsLifecycleDialogOpen) return;
         try
         {
-            var dialog = Dialog(activate ? "ActivateBudgetDialog" : "ArchiveBudgetDialog", activate ? "Aktywacja budżetu" : "Archiwizacja budżetu", $"Czy { (activate ? "aktywować" : "zarchiwizować") } budżet {name}?", activate ? "ConfirmActivateBudgetButton" : "ConfirmArchiveBudgetButton", activate ? "CancelActivateBudgetButton" : "CancelArchiveBudgetButton");
+            var dialog = Dialog(activate ? "ActivateBudgetDialog" : "ArchiveBudgetDialog", activate ? "Aktywacja budżetu" : "Archiwizacja budżetu", $"Czy {(activate ? "aktywować" : "zarchiwizować")} budżet {name}?", activate ? "ConfirmActivateBudgetButton" : "ConfirmArchiveBudgetButton", activate ? "CancelActivateBudgetButton" : "CancelArchiveBudgetButton");
             if (await dialog.ShowAsync() == ContentDialogResult.Primary) { if (activate) await Budgeting.ActivateSelectedBudgetAsync(); else await Budgeting.ArchiveSelectedBudgetAsync(); } else Budgeting.CloseLifecycleDialog();
         }
         finally { if (Budgeting.IsLifecycleDialogOpen) Budgeting.CloseLifecycleDialog(); }

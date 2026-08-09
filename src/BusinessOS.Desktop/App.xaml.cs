@@ -55,7 +55,8 @@ public partial class App : Application
             ActivatorUtilities.CreateInstance<MainViewModel>(activeHost.Services),
             new MainWorkspaceViewModel(
                 ActivatorUtilities.CreateInstance<CompaniesViewModel>(activeHost.Services),
-                ActivatorUtilities.CreateInstance<BusinessProjectsViewModel>(activeHost.Services)),
+                ActivatorUtilities.CreateInstance<BusinessProjectsViewModel>(activeHost.Services),
+                ActivatorUtilities.CreateInstance<BudgetingViewModel>(activeHost.Services)),
             () => ShowRecovery(RecoveryOrigin.MainWindow));
         if (Volatile.Read(ref shutdownStarted) != 0 ||
             !ReferenceEquals(activeHost, hostStartup.Host) ||

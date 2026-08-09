@@ -2,20 +2,21 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 namespace BusinessOS.Desktop.ViewModels;
 
-public enum WorkspaceSection { Companies, BusinessProjects }
+public enum WorkspaceSection { Companies, BusinessProjects, Budgeting }
 public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
 {
     private WorkspaceSection selectedSection;
-    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects)
+    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting)
     {
-        Companies = companies; Projects = projects;
-        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged;
+        Companies = companies; Projects = projects; Budgeting = budgeting;
+        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged;
     }
     public CompaniesViewModel Companies { get; }
     public BusinessProjectsViewModel Projects { get; }
+    public BudgetingViewModel Budgeting { get; }
     public WorkspaceSection SelectedSection { get => selectedSection; private set { if (selectedSection == value) return; selectedSection = value; OnPropertyChanged(); } }
-    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate;
-    public bool CanOpenRecovery => Companies.CanOpenRecovery && Projects.CanNavigate;
+    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate;
+    public bool CanOpenRecovery => CanNavigate;
     public async Task NavigateAsync(WorkspaceSection target, CancellationToken cancellationToken = default)
     {
         if (!CanNavigate || target == SelectedSection) return;
@@ -24,6 +25,11 @@ public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
             try { await Projects.ReloadCompaniesAsync(cancellationToken); }
             catch { return; }
             if (!Projects.LastCompaniesReloadSucceeded) return;
+        }
+        if (target == WorkspaceSection.Budgeting)
+        {
+            await Budgeting.ReloadProjectsAsync(cancellationToken);
+            if (!Budgeting.LastProjectsReloadSucceeded) return;
         }
         if (CanNavigate) SelectedSection = target;
     }

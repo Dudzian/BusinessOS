@@ -735,5 +735,16 @@ Assert 'Block 2B3 CI hardening is present' {
  $readme=Get-Content (Join-Path $RepoRoot 'README.md') -Raw;if($readme-match 'restore UI remains deferred to Block 2B2b|Full Windows validation for Block 1'){throw 'README stale'}
 }
 
+Assert 'desktop Ready smoke protects the complete semantic Budgeting workflow' {
+ $path=Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1';$tokens=$null;$errors=$null;$ast=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+ if($errors.Count){throw 'desktop smoke does not parse'}
+ $fn=@($ast.FindAll({param($n)$n-is[System.Management.Automation.Language.FunctionDefinitionAst]-and$n.Name-eq'Invoke-BudgetingCrudSmoke'},$true));if($fn.Count-ne1){throw 'missing unique Invoke-BudgetingCrudSmoke'};$body=$fn[0].Extent.Text;$diagnosticFunction=@($ast.FindAll({param($n)$n-is[System.Management.Automation.Language.FunctionDefinitionAst]-and$n.Name-eq'Write-BudgetingTimeoutDiagnostics'},$true));if($diagnosticFunction.Count-ne1){throw 'missing unique Budgeting diagnostics'};$contract=$body+$diagnosticFunction[0].Extent.Text
+ foreach($forbidden in 'Select-Object -First','Select-Object -Last','Start-Sleep','IsOffscreen','BoundingRectangle'){if($body.Contains($forbidden)){throw "forbidden Budgeting smoke construct: $forbidden"}}
+ foreach($required in 'Select-ComboBoxExactSemanticItem','Get-BudgetingReadinessState','Get-BudgetRowState','Get-BudgetLineRowState','Write-BudgetingTimeoutDiagnostics','Write-SmokeDiagnosticsToHost','BusinessOS Gym Smoke Updated','Smoke CAPEX','Smoke Revenue','BudgetCapexTotal','BudgetOpexTotal','BudgetRevenueTotal','BudgetFinancingTotal','Version 1','Version 2','150','250','activate cancel stabilization','second activate dialog','archive cancel stabilization','second archive dialog','CancelActivateBudgetButton','ConfirmActivateBudgetButton','CancelArchiveBudgetButton','ConfirmArchiveBudgetButton','BudgetingCrud: archive PASS','BusinessProjectsSectionButton'){if(-not$contract.Contains($required)){throw "Budgeting smoke missing: $required"}}
+ if($body.Contains("-contains'Active'")-or$body.Contains("-contains 'Active'")){throw 'Budgeting status uses fragile exact descendant Active check'}
+ foreach($flow in @(@('CancelActivateBudgetButton','activate cancel stabilization','BudgetingCrud: activation cancel PASS','second activate dialog','ConfirmActivateBudgetButton'),@('CancelArchiveBudgetButton','archive cancel stabilization','BudgetingCrud: archive cancel PASS','second archive dialog','ConfirmArchiveBudgetButton'))){$previous=-1;foreach($marker in $flow){$next=$body.IndexOf($marker,$previous+1,[StringComparison]::Ordinal);if($next-lt0-or$next-lt$previous){throw "Budgeting async order invalid at $marker"};$previous=$next}}
+ $archive=$body.IndexOf('BudgetingCrud: archive PASS',[StringComparison]::Ordinal);$back=$body.IndexOf('BusinessProjectsSectionButton',[StringComparison]::Ordinal);if($archive-lt0-or$back-lt$archive){throw 'Budgeting smoke returns before archive PASS'}
+}
+
 Assert 'Windows verifier fails outside Windows' { if(-not $IsWindows){ Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $RepoRoot 'eng/verify-windows.ps1')) -WorkingDirectory $RepoRoot -Contains 'must run on Windows' | Out-Null } }
 if($script:Failures -gt 0){exit 1}

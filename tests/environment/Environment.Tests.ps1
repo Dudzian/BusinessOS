@@ -75,6 +75,32 @@ Assert 'desktop Ready smoke uses semantic BusinessProjects controls without gati
     if ($source -notmatch "Get-BusinessProjectsReadinessState\s+\`$Main\s+'BusinessOS Smoke Updated'\)\.IsReady") { throw 'Ready scenario does not gate on the semantic readiness helper and expected company' }
     if ($source -notmatch 'BusinessProjectsSectionPanel \(informational only\)') { throw 'layout panel is not retained as explicitly informational timeout diagnostics' }
 }
+Assert 'desktop BusinessProject editor readiness uses UIA capabilities instead of viewport geometry' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null; $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+    function Get-SmokeFunction([string]$Name) {
+        @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $Name }, $true))[0].Extent.Text
+    }
+    $open = Get-SmokeFunction 'Test-BusinessProjectEditorOpen'
+    $closed = Get-SmokeFunction 'Test-BusinessProjectEditorClosed'
+    $valueReady = Get-SmokeFunction 'Test-AutomationValueInputReady'
+    foreach ($id in 'BusinessProjectNameInput','BusinessProjectTypeInput','BusinessProjectLocationInput','BusinessProjectCurrencyInput') {
+        if (-not $open.Contains("'$id'", [StringComparison]::Ordinal)) { throw "BusinessProject editor readiness omits Ready input $id" }
+    }
+    if ($open -match 'Test-Visible|IsOffscreen' -or $open -match 'BusinessProjectEditorPanel') { throw 'BusinessProject editor OPEN readiness depends on viewport or layout geometry' }
+    if ($valueReady -notmatch 'IsEnabled' -or $valueReady -notmatch 'TryGetCurrentPattern' -or $valueReady -notmatch 'ValuePattern' -or $valueReady -notmatch 'IsReadOnly') { throw 'value input readiness does not require enabled, writable UIA ValuePattern capability' }
+    foreach ($signal in 'SaveBusinessProjectButton','CancelBusinessProjectButton','BusinessProjectsStatusFilter') { if (-not $open.Contains("'$signal'", [StringComparison]::Ordinal)) { throw "BusinessProject editor OPEN omits $signal" } }
+    if ($closed -match 'Test-Visible|IsOffscreen' -or $closed -notmatch 'BusinessProjectsStatusFilter' -or $closed -notmatch 'AddBusinessProjectButton') { throw 'BusinessProject editor CLOSED is not based on restored interaction capabilities' }
+}
+Assert 'desktop BusinessProject editor timeout reports control capabilities and emits diagnostics' {
+    $source = Get-Content -LiteralPath (Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1') -Raw
+    foreach ($field in 'Found=False','IsEnabled=','IsOffscreen=','ControlType=','ValuePatternSupported=') { if (-not $source.Contains($field, [StringComparison]::Ordinal)) { throw "editor diagnostics omit $field" } }
+    foreach ($id in 'AddBusinessProjectButton','BusinessProjectsCompanySelector','BusinessProjectsStatusFilter','BusinessProjectOperationMessage') { if (-not $source.Contains("'$id'", [StringComparison]::Ordinal)) { throw "BusinessProject editor diagnostics omit $id" } }
+    $wait = [regex]::Match($source, '(?ms)^function Wait-EditorOpen.*?^}').Value
+    if ($wait -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'Wait-EditorOpen does not emit artifact diagnostics to CI output' }
+}
 Assert 'recovery shutdown preserves UI context and precise internal transition' {
     $gate = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.AppHost/DeferredShutdownGate.cs') -Raw
     $window = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw

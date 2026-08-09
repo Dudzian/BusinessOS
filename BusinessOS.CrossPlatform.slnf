@@ -10,6 +10,7 @@
       "src/Modules/Core/BusinessOS.Modules.Core.Domain/BusinessOS.Modules.Core.Domain.csproj",
       "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Domain/BusinessOS.Modules.Budgeting.Domain.csproj",
       "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Application/BusinessOS.Modules.Budgeting.Application.csproj",
+      "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Infrastructure/BusinessOS.Modules.Budgeting.Infrastructure.csproj",
       "src/Modules/Companies/BusinessOS.Modules.Companies.Domain/BusinessOS.Modules.Companies.Domain.csproj",
       "src/Modules/Companies/BusinessOS.Modules.Companies.Application/BusinessOS.Modules.Companies.Application.csproj",
       "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj",

@@ -49,7 +49,14 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private async void CompaniesSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Companies), Projects.ReportPresentationFailure);
     private async void ProjectsSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.BusinessProjects), Projects.ReportPresentationFailure);
     private async void BudgetingSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Budgeting), Budgeting.ReportPresentationFailure);
-    private async void BudgetingProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) => await RunUiOperationAsync(() => Budgeting.SelectProjectAsync((sender as ComboBox)?.SelectedItem as BudgetProjectInfo), Budgeting.ReportPresentationFailure);
+    private async void BudgetingProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedProjects = e.AddedItems.OfType<BudgetProjectInfo>().ToArray();
+        if (addedProjects.Length != 1) return;
+
+        var project = addedProjects[0];
+        await RunUiOperationAsync(() => Budgeting.SelectProjectAsync(project), Budgeting.ReportPresentationFailure);
+    }
     private async void BudgetsList_SelectionChanged(object sender, SelectionChangedEventArgs e) => await RunUiOperationAsync(() => Budgeting.SelectBudgetAsync((sender as ListView)?.SelectedItem as BudgetItem), Budgeting.ReportPresentationFailure);
     private async void BudgetVersionsList_SelectionChanged(object sender, SelectionChangedEventArgs e) => await RunUiOperationAsync(() => Budgeting.SelectVersionAsync((sender as ListView)?.SelectedItem as BudgetVersionItem), Budgeting.ReportPresentationFailure);
     private async void BudgetRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Budgeting.RefreshAsync(), Budgeting.ReportPresentationFailure);

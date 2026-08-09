@@ -302,6 +302,25 @@ function Write-BusinessProjectStatusTimeoutDiagnostics($Main, [string]$ProjectNa
         Add-Content $diagnostics "$id state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id))"
     }
 }
+function Wait-BusinessProjectStatusReady($Main, [string]$ProjectName, [string]$ExpectedStatus, [string]$TimeoutMessage) {
+    try {
+        Wait-BusinessOSCondition -TimeoutSeconds 15 -RequiredConsecutiveSuccesses 3 -TimeoutMessage $TimeoutMessage -Condition {
+            Test-BusinessProjectStatusReady $Main $ProjectName $ExpectedStatus
+        }
+    } catch {
+        Write-BusinessProjectStatusTimeoutDiagnostics $Main $ProjectName $ExpectedStatus
+        Write-SmokeDiagnosticsToHost
+        throw $TimeoutMessage
+    }
+
+    $state = Get-BusinessProjectStatusState $Main $ProjectName $ExpectedStatus
+    if ($state.ProjectCount -ne 1 -or $null -eq $state.ListItem -or -not $state.StatusConfirmed) {
+        Write-BusinessProjectStatusTimeoutDiagnostics $Main $ProjectName $ExpectedStatus
+        Write-SmokeDiagnosticsToHost
+        throw $TimeoutMessage
+    }
+    return $state
+}
 function Write-SmokeDiagnosticsToHost {
     Write-Host '--- BEGIN DESKTOP SMOKE DIAGNOSTICS ---'
     if (Test-Path -LiteralPath $diagnostics -PathType Leaf) { Write-Host (Get-Content -LiteralPath $diagnostics -Raw) }
@@ -412,15 +431,8 @@ function Invoke-CompaniesCrudSmoke($Main) {
     $selector.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand(); Start-Sleep -Milliseconds 300
     Select-ContainingListItem (Get-NamedElements $statusDialog 'Analysis')[0]
     Invoke-AutomationIdButton $statusDialog 'ConfirmBusinessProjectStatusButton'
-    try {
-        Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Analysis status did not appear for the expected project.' -Condition {
-            Test-BusinessProjectStatusReady $Main 'BusinessOS Gym Smoke Updated' 'Analysis'
-        }
-    } catch {
-        Write-BusinessProjectStatusTimeoutDiagnostics $Main 'BusinessOS Gym Smoke Updated' 'Analysis'
-        Write-SmokeDiagnosticsToHost
-        throw 'Analysis status did not appear for the expected project.'
-    }
+    $null = Wait-BusinessProjectStatusReady $Main 'BusinessOS Gym Smoke Updated' 'Analysis' 'Analysis status did not appear for the expected project.'
+    Add-Content $diagnostics 'BusinessProjectsCrud: status Analysis PASS'
     Invoke-AutomationIdButton $Main 'CompaniesSectionButton'
     $list=Get-AutomationIdElement $Main 'CompaniesList'; Select-ContainingListItem (Get-NamedElements $list 'BusinessOS Smoke Updated')[0]
     Invoke-AutomationIdButton $Main 'ArchiveCompanyButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveCompanyDialog') }
@@ -430,7 +442,11 @@ function Invoke-CompaniesCrudSmoke($Main) {
     Invoke-AutomationIdButton (Get-AutomationIdElement $Main 'ArchiveCompanyDialog') 'ConfirmArchiveCompanyButton'
     Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard did not return a safe message.' -Condition { (Get-NamedElements $Main 'Najpierw zarchiwizuj wszystkie projekty firmy.').Count -ge 1 }
     if ((Get-NamedElements (Get-AutomationIdElement $Main 'CompaniesList') 'BusinessOS Smoke Updated').Count -ne 1) { throw 'Company disappeared despite project archive guard.' }
-    Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'; $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated')[0]
+    Add-Content $diagnostics 'CompaniesCrud: project archive guard PASS'
+    Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'
+    $projectState = Wait-BusinessProjectStatusReady $Main 'BusinessOS Gym Smoke Updated' 'Analysis' 'BusinessProjects section did not restore the expected Analysis project after company archive guard.'
+    Select-ContainingListItem $projectState.ListItem
+    Add-Content $diagnostics 'BusinessProjectsCrud: re-entry after company archive guard PASS'
     Invoke-AutomationIdButton $Main 'ArchiveBusinessProjectButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project archive dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog') }
     $projectArchiveDialog=Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog'; $dialogText=@($projectArchiveDialog.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)|ForEach-Object{$_.Current.Name})-join' | '; if(-not$dialogText.Contains('BusinessOS Gym Smoke Updated')){throw 'Project archive dialog did not contain captured project name.'}; if((Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector').Current.IsEnabled-or(Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled){throw 'Archive dialog did not lock company selector and recovery.'}
     Invoke-AutomationIdButton $projectArchiveDialog 'CancelArchiveBusinessProjectButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Archive cancel did not restore controls.' -Condition { -not(Test-Visible(Get-AutomationIdElement $Main 'ArchiveBusinessProjectDialog')) -and (Get-AutomationIdElement $Main 'BusinessProjectsCompanySelector').Current.IsEnabled -and (Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled }

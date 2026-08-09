@@ -125,7 +125,7 @@ Assert 'desktop Ready smoke scopes status transition readiness and diagnostics t
     if ($readySource -match 'IsOffscreen|BoundingRectangle|Start-Sleep') { throw 'status readiness depends on viewport geometry or sleeps' }
     $source = $ast.Extent.Text
     if ($source -match "Get-NamedElements\s+\(Get-AutomationIdElement\s+\`$Main\s+'BusinessProjectsList'\)\s+'Analysis'") { throw 'global exact-name Analysis lookup remains in the Ready smoke' }
-    if ($source -notmatch "Test-BusinessProjectStatusReady\s+\`$Main\s+'BusinessOS Gym Smoke Updated'\s+'Analysis'") { throw 'Ready scenario does not validate Analysis for the expected project' }
+    if ($source -notmatch "Wait-BusinessProjectStatusReady\s+\`$Main\s+'BusinessOS Gym Smoke Updated'\s+'Analysis'") { throw 'Ready scenario does not validate Analysis for the expected project' }
     foreach ($field in 'Scenario:','Expected project name:','Expected status:','BusinessProjectsList:','BusinessProjectStatusDialog still visible:','BusinessProjectOperationMessage.Current.Name:','Project ListItem semantic descendant names:','ChangeBusinessProjectStatusButton','BusinessProjectsStatusFilter','OpenRecoveryFromMainButton') {
         if (-not $statusDiagnostics.Extent.Text.Contains($field, [StringComparison]::Ordinal)) { throw "status timeout diagnostics omit: $field" }
     }
@@ -136,7 +136,30 @@ Assert 'desktop Ready smoke scopes status transition readiness and diagnostics t
     if ($nextNavigation -lt 0) { throw 'Ready smoke status transition is not followed by the archive flow' }
     $statusPath = $tail.Substring(0, $nextNavigation)
     if ($statusPath -match 'Start-Sleep') { throw 'sleep-based workaround was added after status confirmation' }
-    if ($statusPath -notmatch 'Write-BusinessProjectStatusTimeoutDiagnostics' -or $statusPath -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'status timeout path does not emit diagnostics to CI' }
+    if ($statusPath -notmatch 'Wait-BusinessProjectStatusReady') { throw 'status timeout path does not use the diagnostic stable wait helper' }
+}
+Assert 'desktop Ready smoke stabilizes BusinessProjects re-entry after the company archive guard' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null; $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+    $crud = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-CompaniesCrudSmoke' }, $true))[0]
+    if ($null -eq $crud) { throw 'desktop smoke is missing Invoke-CompaniesCrudSmoke' }
+    $source = $crud.Extent.Text
+    $navigation = "Invoke-AutomationIdButton `$Main 'BusinessProjectsSectionButton'"
+    $navigationOffsets = @(); $offset = 0
+    while (($offset = $source.IndexOf($navigation, $offset, [StringComparison]::Ordinal)) -ge 0) { $navigationOffsets += $offset; $offset += $navigation.Length }
+    if ($navigationOffsets.Count -ne 2) { throw "expected exactly two BusinessProjects navigation calls, found $($navigationOffsets.Count)" }
+    $reentry = $source.Substring($navigationOffsets[1])
+    $archive = $reentry.IndexOf("Invoke-AutomationIdButton `$Main 'ArchiveBusinessProjectButton'", [StringComparison]::Ordinal)
+    if ($archive -lt 0) { throw 'project archive flow is missing after BusinessProjects re-entry' }
+    $beforeArchive = $reentry.Substring(0, $archive)
+    if ($beforeArchive -notmatch "Wait-BusinessProjectStatusReady\s+\`$Main\s+'BusinessOS Gym Smoke Updated'\s+'Analysis'") { throw 're-entry does not stably require the expected Analysis project' }
+    if ($beforeArchive -notmatch 'Select-ContainingListItem\s+\$projectState\.ListItem') { throw 're-entry does not select the safely validated ListItem' }
+    if ($beforeArchive -match 'Start-Sleep|IsOffscreen|BoundingRectangle') { throw 're-entry readiness depends on sleep or viewport geometry' }
+    if ($beforeArchive -match "\(Get-NamedElements[^\r\n;]*'BusinessOS Gym Smoke Updated'\)\[0\]") { throw 're-entry performs unsafe raw indexing before project selection' }
+    $helper = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-BusinessProjectStatusReady' }, $true))[0]
+    if ($null -eq $helper -or $helper.Extent.Text -notmatch 'RequiredConsecutiveSuccesses\s+3' -or $helper.Extent.Text -notmatch 'Write-BusinessProjectStatusTimeoutDiagnostics' -or $helper.Extent.Text -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'stable project wait does not provide consecutive semantic readiness and CI diagnostics' }
 }
 Assert 'recovery shutdown preserves UI context and precise internal transition' {
     $gate = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.AppHost/DeferredShutdownGate.cs') -Raw

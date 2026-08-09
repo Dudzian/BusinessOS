@@ -10,6 +10,23 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Budgeting_desktop_contract_has_semantic_controls_and_live_editor_bindings()
+    {
+        var root = FindRepositoryRoot();
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        var codeBehind = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs"));
+        string[] ids = ["BudgetingSectionButton", "BudgetingProjectSelector", "BudgetProjectCurrency", "BudgetsList", "BudgetsEmptyState", "BudgetNameInput", "SaveBudgetButton", "CancelBudgetButton", "BudgetVersionsList", "CreateInitialBudgetVersionButton", "CreateNextBudgetVersionButton", "BudgetLinesList", "AddBudgetLineButton", "EditBudgetLineButton", "RemoveBudgetLineButton", "BudgetLineKindInput", "BudgetLineNameInput", "BudgetLineAmountInput", "BudgetLineSortOrderInput", "BudgetLineNoteInput", "BudgetCapexTotal", "BudgetOpexTotal", "BudgetRevenueTotal", "BudgetFinancingTotal", "BudgetingOperationMessage"];
+        foreach (var id in ids) xaml.Should().Contain($"AutomationProperties.AutomationId=\"{id}\"");
+        foreach (var id in new[] { "ActivateBudgetDialog", "ConfirmActivateBudgetButton", "CancelActivateBudgetButton", "ArchiveBudgetDialog", "ConfirmArchiveBudgetButton", "CancelArchiveBudgetButton" }) codeBehind.Should().Contain($"\"{id}\"");
+        foreach (var id in new[] { "BudgetNameInput", "BudgetLineNameInput", "BudgetLineAmountInput", "BudgetLineSortOrderInput", "BudgetLineNoteInput" })
+        {
+            var element = XDocument.Parse(xaml).Descendants().Single(x => x.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == id));
+            element.Attribute("Text")!.Value.Should().Contain("Mode=TwoWay").And.Contain("UpdateSourceTrigger=PropertyChanged");
+        }
+        xaml.Should().NotContain("BudgetLineCurrencyInput").And.NotContain("ActualCost").And.NotContain("Invoice").And.NotContain("POS").And.NotContain("ERP");
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Infrastructure");
+    }
+    [Fact]
     public void BusinessProjects_boundaries_and_public_contracts_are_safe()
     {
         var application = typeof(BusinessOS.Modules.BusinessProjects.Application.IBusinessProjectsCrudService).Assembly;

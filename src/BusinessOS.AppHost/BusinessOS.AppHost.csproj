@@ -6,5 +6,6 @@
     <ProjectReference Include="../Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Application/BusinessOS.Modules.BusinessProjects.Application.csproj" />
     <ProjectReference Include="../Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Infrastructure/BusinessOS.Modules.BusinessProjects.Infrastructure.csproj" />
     <ProjectReference Include="../Modules/Budgeting/BusinessOS.Modules.Budgeting.Application/BusinessOS.Modules.Budgeting.Application.csproj" />
+    <ProjectReference Include="../Modules/Budgeting/BusinessOS.Modules.Budgeting.Infrastructure/BusinessOS.Modules.Budgeting.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

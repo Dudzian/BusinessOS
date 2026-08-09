@@ -38,12 +38,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.IntegrationTests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.MigrationTests", "tests/BusinessOS.MigrationTests/BusinessOS.MigrationTests.csproj", "{0BCF3651-39A2-5B0B-9D99-19E8D8DF4FB6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BusinessOS.Modules.Budgeting.Infrastructure", "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Infrastructure/BusinessOS.Modules.Budgeting.Infrastructure.csproj", "{5DB0A9DE-B66C-45B3-8E83-7266BAC21C2F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5DB0A9DE-B66C-45B3-8E83-7266BAC21C2F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DB0A9DE-B66C-45B3-8E83-7266BAC21C2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DB0A9DE-B66C-45B3-8E83-7266BAC21C2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DB0A9DE-B66C-45B3-8E83-7266BAC21C2F}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5B60FEEF-E977-53D6-81D3-ED0D9F61DE07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5B60FEEF-E977-53D6-81D3-ED0D9F61DE07}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5B60FEEF-E977-53D6-81D3-ED0D9F61DE07}.Release|Any CPU.ActiveCfg = Release|Any CPU

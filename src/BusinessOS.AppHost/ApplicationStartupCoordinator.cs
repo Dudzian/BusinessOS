@@ -1,5 +1,6 @@
 using BusinessOS.Modules.Companies.Infrastructure.Persistence;
 using BusinessOS.Modules.BusinessProjects.Infrastructure.Persistence;
+using BusinessOS.Modules.Budgeting.Infrastructure.Persistence;
 using Microsoft.Extensions.Logging;
 
 namespace BusinessOS.AppHost;
@@ -49,7 +50,8 @@ public sealed class ApplicationStartupCoordinator(
     ICompaniesDatabaseBackupService backupService,
     ICompaniesDatabaseInitializer initializer,
     ILogger<ApplicationStartupCoordinator> logger,
-    IBusinessProjectsDatabaseLifecycle? businessProjects = null) : IApplicationStartupCoordinator
+    IBusinessProjectsDatabaseLifecycle? businessProjects = null,
+    IBudgetingDatabaseLifecycle? budgeting = null) : IApplicationStartupCoordinator
 {
     private readonly SemaphoreSlim initializationLock = new(1, 1);
 
@@ -72,14 +74,16 @@ public sealed class ApplicationStartupCoordinator(
             }
 
             BusinessProjectsMigrationState? projectsState = null;
+            IReadOnlyList<string> budgetingPending = [];
             try
             {
                 if (businessProjects is not null) projectsState = await businessProjects.InspectAsync(cancellationToken).ConfigureAwait(false);
+                if (budgeting is not null) budgetingPending = await budgeting.PendingAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception exception) { return Failure(ApplicationStartupFailureCode.DatabaseInspectionFailed, "Nie udało się sprawdzić stanu bazy danych.", exception); }
 
-            var anyPending = state.HasPendingMigrations || projectsState?.HasPendingMigrations == true;
+            var anyPending = state.HasPendingMigrations || projectsState?.HasPendingMigrations == true || budgetingPending.Count > 0;
             if (state.DatabaseExists && !anyPending) return ApplicationStartupResult.Success(false, false, null);
 
             string? backupPath = null;
@@ -117,6 +121,12 @@ public sealed class ApplicationStartupCoordinator(
                     logger.LogInformation("Starting BusinessProjects database migration.");
                     await businessProjects.InitializeAsync(cancellationToken).ConfigureAwait(false);
                     logger.LogInformation("BusinessProjects database migration completed.");
+                }
+                if (budgeting is not null)
+                {
+                    logger.LogInformation("Starting Budgeting database migration.");
+                    await budgeting.InitializeAsync(cancellationToken).ConfigureAwait(false);
+                    logger.LogInformation("Budgeting database migration completed.");
                 }
                 return ApplicationStartupResult.Success(!state.DatabaseExists, anyPending || !state.DatabaseExists, backupPath);
             }

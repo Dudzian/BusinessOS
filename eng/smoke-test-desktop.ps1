@@ -74,10 +74,14 @@ function Set-AutomationValue($Root, [string]$AutomationId, [string]$Value) {
     if ($null -eq $element) { throw "UI Automation input was not found: $AutomationId" }
     $element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($Value)
 }
-function Select-ContainingListItem($Element) {
+function Get-ContainingListItem($Element) {
     $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
     $current = $Element
     while ($null -ne $current -and $current.Current.ControlType -ne [System.Windows.Automation.ControlType]::ListItem) { $current = $walker.GetParent($current) }
+    return $current
+}
+function Select-ContainingListItem($Element) {
+    $current = Get-ContainingListItem $Element
     if ($null -eq $current) { throw 'Company list item could not be selected.' }
     $current.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
 }
@@ -247,6 +251,57 @@ function Write-BusinessProjectsLoadTimeoutDiagnostics($Main) {
     Add-Content $diagnostics "BusinessProjectOperationMessage.Current.Name: $(if ($null -eq $message) { '<not found>' } else { $message.Current.Name })"
     Add-Content $diagnostics "CompaniesList: count `"BusinessOS Smoke`"=$oldCompanyCount; count `"BusinessOS Smoke Updated`"=$updatedCompanyCount"
 }
+function Get-BusinessProjectStatusState($Main, [string]$ProjectName, [string]$ExpectedStatus) {
+    $list = Get-AutomationIdElement $Main 'BusinessProjectsList'
+    $projects = if ($null -eq $list) { @() } else { @(Get-NamedElements $list $ProjectName) }
+    $listItem = if ($projects.Count -eq 1) { Get-ContainingListItem $projects[0] } else { $null }
+    $semanticNames = if ($null -eq $listItem) { @() } else {
+        @($listItem) + @($listItem.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)) |
+            ForEach-Object { $_.Current.Name } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -Unique
+    }
+    $statusConfirmed = @($semanticNames | Where-Object {
+        $_ -eq $ExpectedStatus -or @($_ -split '\s*[\u00b7|]\s*') -contains $ExpectedStatus
+    }).Count -gt 0
+    [pscustomobject]@{
+        List = $list
+        ProjectCount = $projects.Count
+        ListItem = $listItem
+        SemanticNames = @($semanticNames)
+        StatusConfirmed = $statusConfirmed
+    }
+}
+function Test-BusinessProjectStatusReady($Main, [string]$ProjectName, [string]$ExpectedStatus) {
+    $state = Get-BusinessProjectStatusState $Main $ProjectName $ExpectedStatus
+    $dialog = Get-AutomationIdElement $Main 'BusinessProjectStatusDialog'
+    $filter = Get-AutomationIdElement $Main 'BusinessProjectsStatusFilter'
+    $recovery = Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton'
+    $state.ProjectCount -eq 1 -and $null -ne $state.ListItem -and $state.StatusConfirmed -and
+        $null -eq $dialog -and $null -ne $state.List -and $state.List.Current.IsEnabled -and
+        $null -ne $filter -and $filter.Current.IsEnabled -and $null -ne $recovery -and $recovery.Current.IsEnabled
+}
+function Write-BusinessProjectStatusTimeoutDiagnostics($Main, [string]$ProjectName, [string]$ExpectedStatus) {
+    $state = Get-BusinessProjectStatusState $Main $ProjectName $ExpectedStatus
+    $dialog = Get-AutomationIdElement $Main 'BusinessProjectStatusDialog'
+    $message = Get-AutomationIdElement $Main 'BusinessProjectOperationMessage'
+    Add-Content $diagnostics 'BusinessProject status transition timeout diagnostics:'
+    Add-Content $diagnostics "Scenario: $Scenario"
+    Add-Content $diagnostics "Expected project name: $ProjectName"
+    Add-Content $diagnostics "Expected status: $ExpectedStatus"
+    Add-Content $diagnostics "BusinessProjectsList: Found=$($null -ne $state.List); IsEnabled=$(if ($null -eq $state.List) { 'n/a' } else { $state.List.Current.IsEnabled })"
+    Add-Content $diagnostics "BusinessProjectStatusDialog still visible: $(Test-Visible $dialog)"
+    Add-Content $diagnostics "BusinessProjectOperationMessage.Current.Name: $(if ($null -eq $message) { '<not found>' } else { $message.Current.Name })"
+    Add-Content $diagnostics "Expected project element count: $($state.ProjectCount)"
+    Add-Content $diagnostics "Containing project ListItem found: $($null -ne $state.ListItem)"
+    Add-Content $diagnostics "Project ListItem semantic descendant names: $(if ($state.SemanticNames.Count -eq 0) { '<none>' } else { $state.SemanticNames -join ' | ' })"
+    Add-Content $diagnostics "Expected status confirmed in project ListItem: $($state.StatusConfirmed)"
+    foreach ($id in 'ChangeBusinessProjectStatusButton', 'BusinessProjectsStatusFilter', 'OpenRecoveryFromMainButton') {
+        Add-Content $diagnostics "$id state: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id))"
+    }
+}
 function Write-SmokeDiagnosticsToHost {
     Write-Host '--- BEGIN DESKTOP SMOKE DIAGNOSTICS ---'
     if (Test-Path -LiteralPath $diagnostics -PathType Leaf) { Write-Host (Get-Content -LiteralPath $diagnostics -Raw) }
@@ -357,7 +412,15 @@ function Invoke-CompaniesCrudSmoke($Main) {
     $selector.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand(); Start-Sleep -Milliseconds 300
     Select-ContainingListItem (Get-NamedElements $statusDialog 'Analysis')[0]
     Invoke-AutomationIdButton $statusDialog 'ConfirmBusinessProjectStatusButton'
-    Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Analysis status did not appear in project list.' -Condition { (Get-NamedElements (Get-AutomationIdElement $Main 'BusinessProjectsList') 'Analysis').Count -ge 1 }
+    try {
+        Wait-BusinessOSCondition -TimeoutSeconds 15 -TimeoutMessage 'Analysis status did not appear for the expected project.' -Condition {
+            Test-BusinessProjectStatusReady $Main 'BusinessOS Gym Smoke Updated' 'Analysis'
+        }
+    } catch {
+        Write-BusinessProjectStatusTimeoutDiagnostics $Main 'BusinessOS Gym Smoke Updated' 'Analysis'
+        Write-SmokeDiagnosticsToHost
+        throw 'Analysis status did not appear for the expected project.'
+    }
     Invoke-AutomationIdButton $Main 'CompaniesSectionButton'
     $list=Get-AutomationIdElement $Main 'CompaniesList'; Select-ContainingListItem (Get-NamedElements $list 'BusinessOS Smoke Updated')[0]
     Invoke-AutomationIdButton $Main 'ArchiveCompanyButton'; Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'ArchiveCompanyDialog') }

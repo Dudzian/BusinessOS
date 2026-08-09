@@ -101,6 +101,43 @@ Assert 'desktop BusinessProject editor timeout reports control capabilities and 
     $wait = [regex]::Match($source, '(?ms)^function Wait-EditorOpen.*?^}').Value
     if ($wait -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'Wait-EditorOpen does not emit artifact diagnostics to CI output' }
 }
+Assert 'desktop Ready smoke scopes status transition readiness and diagnostics to the expected project row' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null; $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+    function Get-SmokeFunctionAst([string]$Name) {
+        @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $Name }, $true))[0]
+    }
+    $statusState = Get-SmokeFunctionAst 'Get-BusinessProjectStatusState'
+    $statusReady = Get-SmokeFunctionAst 'Test-BusinessProjectStatusReady'
+    $statusDiagnostics = Get-SmokeFunctionAst 'Write-BusinessProjectStatusTimeoutDiagnostics'
+    foreach ($function in $statusState, $statusReady, $statusDiagnostics) { if ($null -eq $function) { throw 'desktop smoke is missing a status transition helper' } }
+    $stateSource = $statusState.Extent.Text
+    if ($stateSource -notmatch 'Get-NamedElements\s+\$list\s+\$ProjectName' -or $stateSource -notmatch 'Get-ContainingListItem' -or $stateSource -notmatch 'TreeScope\]::Descendants') {
+        throw 'status validation is not scoped from the exact project name through its containing ListItem descendants'
+    }
+    if ($stateSource -match 'IsOffscreen|BoundingRectangle|Start-Sleep') { throw 'status validation depends on viewport geometry or sleeps' }
+    $readySource = $statusReady.Extent.Text
+    foreach ($signal in 'ProjectCount -eq 1','StatusConfirmed','BusinessProjectStatusDialog','BusinessProjectsStatusFilter','OpenRecoveryFromMainButton') {
+        if (-not $readySource.Contains($signal, [StringComparison]::Ordinal)) { throw "status readiness omits semantic/interaction signal: $signal" }
+    }
+    if ($readySource -match 'IsOffscreen|BoundingRectangle|Start-Sleep') { throw 'status readiness depends on viewport geometry or sleeps' }
+    $source = $ast.Extent.Text
+    if ($source -match "Get-NamedElements\s+\(Get-AutomationIdElement\s+\`$Main\s+'BusinessProjectsList'\)\s+'Analysis'") { throw 'global exact-name Analysis lookup remains in the Ready smoke' }
+    if ($source -notmatch "Test-BusinessProjectStatusReady\s+\`$Main\s+'BusinessOS Gym Smoke Updated'\s+'Analysis'") { throw 'Ready scenario does not validate Analysis for the expected project' }
+    foreach ($field in 'Scenario:','Expected project name:','Expected status:','BusinessProjectsList:','BusinessProjectStatusDialog still visible:','BusinessProjectOperationMessage.Current.Name:','Project ListItem semantic descendant names:','ChangeBusinessProjectStatusButton','BusinessProjectsStatusFilter','OpenRecoveryFromMainButton') {
+        if (-not $statusDiagnostics.Extent.Text.Contains($field, [StringComparison]::Ordinal)) { throw "status timeout diagnostics omit: $field" }
+    }
+    $confirmCalls = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] -and $node.Extent.Text -match "ConfirmBusinessProjectStatusButton" }, $true))
+    if ($confirmCalls.Count -ne 1) { throw 'Ready smoke must confirm the status transition exactly once' }
+    $tail = $source.Substring($confirmCalls[0].Extent.EndOffset)
+    $nextNavigation = $tail.IndexOf("Invoke-AutomationIdButton `$Main 'CompaniesSectionButton'", [StringComparison]::Ordinal)
+    if ($nextNavigation -lt 0) { throw 'Ready smoke status transition is not followed by the archive flow' }
+    $statusPath = $tail.Substring(0, $nextNavigation)
+    if ($statusPath -match 'Start-Sleep') { throw 'sleep-based workaround was added after status confirmation' }
+    if ($statusPath -notmatch 'Write-BusinessProjectStatusTimeoutDiagnostics' -or $statusPath -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'status timeout path does not emit diagnostics to CI' }
+}
 Assert 'recovery shutdown preserves UI context and precise internal transition' {
     $gate = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.AppHost/DeferredShutdownGate.cs') -Raw
     $window = Get-Content -LiteralPath (Join-Path $RepoRoot 'src/BusinessOS.Desktop/DatabaseRecoveryWindow.xaml.cs') -Raw

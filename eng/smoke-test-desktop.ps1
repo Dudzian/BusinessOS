@@ -355,15 +355,57 @@ function Get-NamedElements($Root, [string]$Name) {
 function Select-ComboBoxExactSemanticItem($Main, [string]$SelectorId, [string]$ExpectedName) {
     $selector = Get-AutomationIdElement $Main $SelectorId
     if ($null -eq $selector) { throw "ComboBox not found: $SelectorId" }
+    $selectorRuntimeId = @($selector.GetRuntimeId()) -join '.'
     $selector.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     $condition = [System.Windows.Automation.AndCondition]::new(
         [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $ExpectedName),
         [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty, $true))
-    $owned = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition) | Where-Object {
-        try { $container=$_.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Current.SelectionContainer; $null-ne$container -and (@($container.GetRuntimeId()) -join '.') -eq (@($selector.GetRuntimeId()) -join '.') } catch { $false }
+    $rawCandidates = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition) | Where-Object {
+        try {
+            $container = $_.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Current.SelectionContainer
+            $null -ne $container -and (@($container.GetRuntimeId()) -join '.') -eq $selectorRuntimeId
+        } catch { $false }
     })
-    if ($owned.Count -ne 1) { throw "Expected exactly one '$ExpectedName' owned by $SelectorId; found $($owned.Count)." }
-    $owned[0].GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    $logicalItemsByRuntimeId = @{}
+    $rawDiagnostics = @($rawCandidates | ForEach-Object {
+        $candidate = $_
+        $candidatePattern = $candidate.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $candidateContainer = $candidatePattern.Current.SelectionContainer
+        $logicalItem = if ($candidate.Current.ControlType -eq [System.Windows.Automation.ControlType]::ListItem) { $candidate } else { Get-ContainingListItem $candidate }
+        $logicalRuntimeId = '<none>'
+        if ($null -ne $logicalItem -and $logicalItem.Current.Name -ceq $ExpectedName) {
+            try {
+                $logicalPattern = $logicalItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+                $logicalContainer = $logicalPattern.Current.SelectionContainer
+                if ($null -ne $logicalContainer -and (@($logicalContainer.GetRuntimeId()) -join '.') -eq $selectorRuntimeId) {
+                    $logicalRuntimeId = @($logicalItem.GetRuntimeId()) -join '.'
+                    $logicalItemsByRuntimeId[$logicalRuntimeId] = $logicalItem
+                }
+            } catch { }
+        }
+        [pscustomobject]@{
+            Name = $candidate.Current.Name
+            ControlType = $candidate.Current.ControlType.ProgrammaticName
+            AutomationId = $candidate.Current.AutomationId
+            RuntimeId = @($candidate.GetRuntimeId()) -join '.'
+            IsEnabled = $candidate.Current.IsEnabled
+            SelectionContainerRuntimeId = @($candidateContainer.GetRuntimeId()) -join '.'
+            CanonicalLogicalListItemRuntimeId = $logicalRuntimeId
+        }
+    })
+    $logicalItems = @($logicalItemsByRuntimeId.Values)
+    if ($logicalItems.Count -ne 1) {
+        $rawDetails = @($rawDiagnostics | ForEach-Object { "raw: Name='$($_.Name)'; ControlType=$($_.ControlType); AutomationId='$($_.AutomationId)'; RuntimeId=$($_.RuntimeId); IsEnabled=$($_.IsEnabled); SelectionContainerRuntimeId=$($_.SelectionContainerRuntimeId); CanonicalLogicalListItemRuntimeId=$($_.CanonicalLogicalListItemRuntimeId)" }) -join [Environment]::NewLine
+        $logicalDetails = @($logicalItems | ForEach-Object {
+            $logicalPattern = $_.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+            $logicalContainer = $logicalPattern.Current.SelectionContainer
+            "logical: Name='$($_.Current.Name)'; ControlType=$($_.Current.ControlType.ProgrammaticName); AutomationId='$($_.Current.AutomationId)'; RuntimeId=$(@($_.GetRuntimeId()) -join '.'); SelectionContainerRuntimeId=$(@($logicalContainer.GetRuntimeId()) -join '.')"
+        }) -join [Environment]::NewLine
+        throw "Expected exactly one unique logical selectable item. SelectorAutomationId='$SelectorId'; SelectorRuntimeId=$selectorRuntimeId; ExpectedName='$ExpectedName'; RawCandidateCount=$($rawCandidates.Count); UniqueLogicalItemCount=$($logicalItems.Count).$([Environment]::NewLine)$rawDetails$([Environment]::NewLine)$logicalDetails"
+    }
+    foreach ($logicalItem in $logicalItems) {
+        $logicalItem.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select()
+    }
     Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage "$SelectorId did not select '$ExpectedName'." -Condition { (Get-ComboBoxSemanticSelection $selector $ExpectedName).IsExpected }
 }
 function Get-ExactListRow($List, [string]$Name) {

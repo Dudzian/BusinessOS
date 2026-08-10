@@ -2,20 +2,21 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 namespace BusinessOS.Desktop.ViewModels;
 
-public enum WorkspaceSection { Companies, BusinessProjects, Budgeting }
+public enum WorkspaceSection { Companies, BusinessProjects, Budgeting, ActualCosts }
 public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
 {
     private WorkspaceSection selectedSection;
-    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting)
+    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting, ActualCostsViewModel actualCosts)
     {
-        Companies = companies; Projects = projects; Budgeting = budgeting;
-        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged;
+        Companies = companies; Projects = projects; Budgeting = budgeting; ActualCosts = actualCosts;
+        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged; ActualCosts.PropertyChanged += ChildChanged;
     }
     public CompaniesViewModel Companies { get; }
     public BusinessProjectsViewModel Projects { get; }
     public BudgetingViewModel Budgeting { get; }
+    public ActualCostsViewModel ActualCosts { get; }
     public WorkspaceSection SelectedSection { get => selectedSection; private set { if (selectedSection == value) return; selectedSection = value; OnPropertyChanged(); } }
-    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate;
+    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate && ActualCosts.CanNavigate;
     public bool CanOpenRecovery => CanNavigate;
     public async Task NavigateAsync(WorkspaceSection target, CancellationToken cancellationToken = default)
     {
@@ -31,9 +32,15 @@ public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
             await Budgeting.ReloadProjectsAsync(cancellationToken);
             if (!Budgeting.LastProjectsReloadSucceeded) return;
         }
+        if (target == WorkspaceSection.ActualCosts)
+        {
+            await ActualCosts.ReloadProjectsAsync(cancellationToken);
+            if (!ActualCosts.LastProjectsReloadSucceeded) return;
+        }
         if (CanNavigate) SelectedSection = target;
     }
     private void ChildChanged(object? sender, PropertyChangedEventArgs e) { OnPropertyChanged(nameof(CanNavigate)); OnPropertyChanged(nameof(CanOpenRecovery)); }
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
+
 }

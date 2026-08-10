@@ -17,6 +17,6 @@ public static class BudgetingPersistenceServiceCollectionExtensions
     {
         var cs = new SqliteConnectionStringBuilder { DataSource = databasePath, Pooling = false }.ToString();
         services.AddPooledDbContextFactory<BudgetingDbContext>(o => o.UseSqlite(cs, x => x.MigrationsHistoryTable("__EFMigrationsHistory_Budgeting")));
-        services.AddTransient<IBudgetingStore, BudgetingStore>(); services.AddSingleton<IBudgetingDatabaseLifecycle>(sp => new BudgetingDatabaseLifecycle(sp.GetRequiredService<IDbContextFactory<BudgetingDbContext>>(), databasePath)); return services;
+        services.AddTransient<IBudgetingStore, BudgetingStore>(); services.AddTransient<IActualCostsStore, ActualCostsStore>(); services.AddSingleton<IBudgetingDatabaseLifecycle>(sp => new BudgetingDatabaseLifecycle(sp.GetRequiredService<IDbContextFactory<BudgetingDbContext>>(), databasePath)); return services;
     }
 }

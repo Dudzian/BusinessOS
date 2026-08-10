@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using BusinessOS.Modules.Budgeting.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BusinessOS.Modules.Budgeting.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BudgetingDbContext))]
-    partial class BudgetingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260810122833_AddActualCosts")]
+    partial class AddActualCosts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");

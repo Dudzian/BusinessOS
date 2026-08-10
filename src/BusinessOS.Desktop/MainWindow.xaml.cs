@@ -17,10 +17,15 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public CompaniesViewModel Companies => Workspace.Companies;
     public BusinessProjectsViewModel Projects => Workspace.Projects;
     public BudgetingViewModel Budgeting => Workspace.Budgeting;
+    public ActualCostsViewModel ActualCosts => Workspace.ActualCosts;
     public IReadOnlyList<CompanyStatusValue> CompanyStatuses { get; } = Enum.GetValues<CompanyStatusValue>();
     public Visibility CompaniesVisibility => Workspace.SelectedSection == WorkspaceSection.Companies ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ProjectsVisibility => Workspace.SelectedSection == WorkspaceSection.BusinessProjects ? Visibility.Visible : Visibility.Collapsed;
     public Visibility BudgetingVisibility => Workspace.SelectedSection == WorkspaceSection.Budgeting ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ActualCostsVisibility => Workspace.SelectedSection == WorkspaceSection.ActualCosts ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ActualCostsEmptyVisibility => ActualCosts.SelectedProject is not null && ActualCosts.Costs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ActualCostEditorVisibility => ActualCosts.IsEditorOpen ? Visibility.Visible : Visibility.Collapsed;
+    public DateTimeOffset? ActualCostDate { get => new(ActualCosts.CostDate.ToDateTime(TimeOnly.MinValue)); set { if (value is not null) ActualCosts.CostDate = DateOnly.FromDateTime(value.Value.DateTime); } }
     public Visibility CompanyEditorVisibility => Companies.IsEditorOpen ? Visibility.Visible : Visibility.Collapsed;
     public Visibility CompaniesEmptyVisibility => Companies.IsEmpty ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ProjectEditorVisibility => Projects.IsEditorOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -34,7 +39,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow(MainViewModel shell, MainWorkspaceViewModel workspace, Action openRecovery)
     {
         InitializeComponent(); Shell = shell; Workspace = workspace; this.openRecovery = openRecovery;
-        Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed; Budgeting.PropertyChanged += Changed;
+        Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed; Budgeting.PropertyChanged += Changed; ActualCosts.PropertyChanged += Changed;
         if (Content is FrameworkElement root) root.DataContext = this;
         _ = RunUiOperationAsync(Companies.RefreshAsync, Companies.ReportPresentationFailure);
         _ = RunUiOperationAsync(() => Projects.InitializeAsync(CancellationToken.None), Projects.ReportPresentationFailure);
@@ -42,13 +47,34 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     private void Changed(object? sender, PropertyChangedEventArgs args)
     {
-        foreach (var name in new[] { nameof(CompaniesVisibility), nameof(ProjectsVisibility), nameof(BudgetingVisibility), nameof(CompanyEditorVisibility), nameof(CompaniesEmptyVisibility), nameof(ProjectEditorVisibility), nameof(ProjectsEmptyVisibility), nameof(BudgetsEmptyVisibility), nameof(BudgetEditorVisibility), nameof(LineEditorVisibility), nameof(ProjectStartDate), nameof(ProjectOpeningDate) })
+        foreach (var name in new[] { nameof(CompaniesVisibility), nameof(ProjectsVisibility), nameof(BudgetingVisibility), nameof(ActualCostsVisibility), nameof(ActualCostsEmptyVisibility), nameof(ActualCostEditorVisibility), nameof(ActualCostDate), nameof(CompanyEditorVisibility), nameof(CompaniesEmptyVisibility), nameof(ProjectEditorVisibility), nameof(ProjectsEmptyVisibility), nameof(BudgetsEmptyVisibility), nameof(BudgetEditorVisibility), nameof(LineEditorVisibility), nameof(ProjectStartDate), nameof(ProjectOpeningDate) })
             PropertyChanged?.Invoke(this, new(name));
     }
 
     private async void CompaniesSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Companies), Projects.ReportPresentationFailure);
     private async void ProjectsSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.BusinessProjects), Projects.ReportPresentationFailure);
     private async void BudgetingSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Budgeting), Budgeting.ReportPresentationFailure);
+    private async void ActualCostsSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.ActualCosts), ActualCosts.ReportPresentationFailure);
+    private async void ActualCostsProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedProjects = e.AddedItems.OfType<BudgetProjectInfo>().ToArray();
+        if (addedProjects.Length != 1) return;
+        var project = addedProjects.Single();
+        await RunUiOperationAsync(() => ActualCosts.SelectProjectAsync(project), ActualCosts.ReportPresentationFailure);
+    }
+    private async void ActualCostsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedCosts = e.AddedItems.OfType<ActualCostItem>().ToArray();
+        if (addedCosts.Length != 1) return;
+        var cost = addedCosts.Single();
+        await RunUiOperationAsync(() => ActualCosts.SelectCostAsync(cost), ActualCosts.ReportPresentationFailure);
+    }
+    private async void ActualCostsRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => ActualCosts.RefreshAsync(), ActualCosts.ReportPresentationFailure);
+    private void ActualCostAdd_Click(object sender, RoutedEventArgs e) => ActualCosts.BeginAddCost();
+    private void ActualCostEdit_Click(object sender, RoutedEventArgs e) => ActualCosts.BeginEditCost();
+    private async void ActualCostSave_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => ActualCosts.SaveCostAsync(), ActualCosts.ReportPresentationFailure);
+    private void ActualCostCancel_Click(object sender, RoutedEventArgs e) => ActualCosts.CancelEditor();
+    private async void ActualCostArchive_Click(object sender, RoutedEventArgs e) { ActualCosts.OpenArchiveDialog(); if (!ActualCosts.IsArchiveDialogOpen) return; var d = Dialog("ArchiveActualCostDialog", "Archiwizacja kosztu", "Czy zarchiwizować koszt?", "ConfirmArchiveActualCostButton", "CancelArchiveActualCostButton"); if (await d.ShowAsync() == ContentDialogResult.Primary) await ActualCosts.ConfirmArchiveAsync(); else ActualCosts.CancelArchive(); }
     private async void BudgetingProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var addedProjects = e.AddedItems.OfType<BudgetProjectInfo>().ToArray();

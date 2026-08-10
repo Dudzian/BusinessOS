@@ -10,6 +10,21 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Budget_variance_vertical_slice_keeps_query_workspace_and_read_only_ui_boundaries()
+    {
+        var root = FindRepositoryRoot();
+        Assert.Same(typeof(BusinessOS.Modules.Budgeting.Application.IBudgetVarianceQueryService).Assembly, typeof(BusinessOS.Modules.Budgeting.Application.IBudgetVarianceReadStore).Assembly);
+        typeof(BusinessOS.Modules.Budgeting.Domain.Budget).Assembly.GetReferencedAssemblies().Select(x => x.Name).Should().NotContain(x => x!.Contains("Application"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        File.ReadAllText(Path.Combine(root, "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj")).Should().Contain("BudgetVarianceViewModel.cs");
+        var workspace = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/MainWorkspaceViewModel.cs"));
+        workspace.Should().Contain("BudgetVarianceViewModel budgetVariance").And.NotContain("BudgetVarianceViewModel? budgetVariance").And.NotContain("EmptyVarianceService").And.NotContain("EmptyProjectLookup");
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        string[] ids = ["BudgetVarianceSectionButton", "BudgetVarianceSectionPanel", "BudgetVarianceProjectSelector", "BudgetVarianceBudgetSelector", "BudgetVarianceVersionSelector", "BudgetVarianceCurrency", "BudgetVarianceBudgetStatus", "RefreshBudgetVarianceButton", "BudgetVarianceCapexPlanned", "BudgetVarianceCapexActual", "BudgetVarianceCapexVariance", "BudgetVarianceCapexUtilization", "BudgetVarianceCapexState", "BudgetVarianceOpexPlanned", "BudgetVarianceOpexActual", "BudgetVarianceOpexVariance", "BudgetVarianceOpexUtilization", "BudgetVarianceOpexState", "BudgetVarianceTotalPlanned", "BudgetVarianceTotalActual", "BudgetVarianceTotalVariance", "BudgetVarianceTotalUtilization", "BudgetVarianceTotalState", "BudgetVarianceOperationMessage"];
+        foreach (var id in ids) xaml.Should().Contain($"AutomationProperties.AutomationId=\"{id}\"");
+        foreach (var forbidden in new[] { "AddBudgetVariance", "EditBudgetVariance", "ArchiveBudgetVariance", "SaveBudgetVariance" }) xaml.Should().NotContain(forbidden);
+    }
+    [Fact]
     public void Actual_costs_vertical_slice_keeps_boundaries_and_desktop_contract()
     {
         var root = FindRepositoryRoot();

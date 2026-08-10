@@ -20,4 +20,4 @@ The existing application startup coordinator inspects and migrates Companies, Bu
 
 Domain, application, SQLite integration, migrations, startup coordination, concurrency, transaction, architecture boundaries, and the WinUI workflow are complete. The existing Windows `Ready` scenario includes the end-to-end Budgeting workflow; it remains one of the same five top-level smoke scenarios.
 
-Actual Costs are implemented separately in Block 3B2. Invoices, purchase orders, forecasting, cash flow, P&L, analytics, AI, banking, POS, ERP, and GymOS integrations remain out of scope.
+Actual Costs are implemented separately in Block 3B2, and Plan vs Actual analytics is implemented separately in Block 3B3. Invoices, purchase orders, forecasting, cash flow, P&L, AI, banking, POS, ERP, and GymOS integrations remain out of scope.

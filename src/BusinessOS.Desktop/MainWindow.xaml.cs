@@ -18,11 +18,13 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public BusinessProjectsViewModel Projects => Workspace.Projects;
     public BudgetingViewModel Budgeting => Workspace.Budgeting;
     public ActualCostsViewModel ActualCosts => Workspace.ActualCosts;
+    public BudgetVarianceViewModel BudgetVariance => Workspace.BudgetVariance;
     public IReadOnlyList<CompanyStatusValue> CompanyStatuses { get; } = Enum.GetValues<CompanyStatusValue>();
     public Visibility CompaniesVisibility => Workspace.SelectedSection == WorkspaceSection.Companies ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ProjectsVisibility => Workspace.SelectedSection == WorkspaceSection.BusinessProjects ? Visibility.Visible : Visibility.Collapsed;
     public Visibility BudgetingVisibility => Workspace.SelectedSection == WorkspaceSection.Budgeting ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ActualCostsVisibility => Workspace.SelectedSection == WorkspaceSection.ActualCosts ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility BudgetVarianceVisibility => Workspace.SelectedSection == WorkspaceSection.BudgetVariance ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ActualCostsEmptyVisibility => ActualCosts.SelectedProject is not null && ActualCosts.Costs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ActualCostEditorVisibility => ActualCosts.IsEditorOpen ? Visibility.Visible : Visibility.Collapsed;
     public DateTimeOffset? ActualCostDate { get => new(ActualCosts.CostDate.ToDateTime(TimeOnly.MinValue)); set { if (value is not null) ActualCosts.CostDate = DateOnly.FromDateTime(value.Value.DateTime); } }
@@ -39,7 +41,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow(MainViewModel shell, MainWorkspaceViewModel workspace, Action openRecovery)
     {
         InitializeComponent(); Shell = shell; Workspace = workspace; this.openRecovery = openRecovery;
-        Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed; Budgeting.PropertyChanged += Changed; ActualCosts.PropertyChanged += Changed;
+        Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed; Budgeting.PropertyChanged += Changed; ActualCosts.PropertyChanged += Changed; BudgetVariance.PropertyChanged += Changed;
         if (Content is FrameworkElement root) root.DataContext = this;
         _ = RunUiOperationAsync(Companies.RefreshAsync, Companies.ReportPresentationFailure);
         _ = RunUiOperationAsync(() => Projects.InitializeAsync(CancellationToken.None), Projects.ReportPresentationFailure);
@@ -47,7 +49,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     private void Changed(object? sender, PropertyChangedEventArgs args)
     {
-        foreach (var name in new[] { nameof(CompaniesVisibility), nameof(ProjectsVisibility), nameof(BudgetingVisibility), nameof(ActualCostsVisibility), nameof(ActualCostsEmptyVisibility), nameof(ActualCostEditorVisibility), nameof(ActualCostDate), nameof(CompanyEditorVisibility), nameof(CompaniesEmptyVisibility), nameof(ProjectEditorVisibility), nameof(ProjectsEmptyVisibility), nameof(BudgetsEmptyVisibility), nameof(BudgetEditorVisibility), nameof(LineEditorVisibility), nameof(ProjectStartDate), nameof(ProjectOpeningDate) })
+        foreach (var name in new[] { nameof(CompaniesVisibility), nameof(ProjectsVisibility), nameof(BudgetingVisibility), nameof(ActualCostsVisibility), nameof(BudgetVarianceVisibility), nameof(ActualCostsEmptyVisibility), nameof(ActualCostEditorVisibility), nameof(ActualCostDate), nameof(CompanyEditorVisibility), nameof(CompaniesEmptyVisibility), nameof(ProjectEditorVisibility), nameof(ProjectsEmptyVisibility), nameof(BudgetsEmptyVisibility), nameof(BudgetEditorVisibility), nameof(LineEditorVisibility), nameof(ProjectStartDate), nameof(ProjectOpeningDate) })
             PropertyChanged?.Invoke(this, new(name));
     }
 
@@ -55,6 +57,29 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private async void ProjectsSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.BusinessProjects), Projects.ReportPresentationFailure);
     private async void BudgetingSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Budgeting), Budgeting.ReportPresentationFailure);
     private async void ActualCostsSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.ActualCosts), ActualCosts.ReportPresentationFailure);
+    private async void BudgetVarianceSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.BudgetVariance), BudgetVariance.ReportPresentationFailure);
+    private async void BudgetVarianceProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedProjects = e.AddedItems.OfType<BudgetProjectInfo>().ToArray();
+        if (addedProjects.Length != 1) return;
+        var project = addedProjects.Single();
+        await RunUiOperationAsync(() => BudgetVariance.SelectProjectAsync(project), BudgetVariance.ReportPresentationFailure);
+    }
+    private async void BudgetVarianceBudgetSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedBudgets = e.AddedItems.OfType<BudgetVarianceBudgetItem>().ToArray();
+        if (addedBudgets.Length != 1) return;
+        var budget = addedBudgets.Single();
+        await RunUiOperationAsync(() => BudgetVariance.SelectBudgetAsync(budget), BudgetVariance.ReportPresentationFailure);
+    }
+    private async void BudgetVarianceVersionSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedVersions = e.AddedItems.OfType<BudgetVarianceVersionItem>().ToArray();
+        if (addedVersions.Length != 1) return;
+        var version = addedVersions.Single();
+        await RunUiOperationAsync(() => BudgetVariance.SelectVersionAsync(version), BudgetVariance.ReportPresentationFailure);
+    }
+    private async void BudgetVarianceRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => BudgetVariance.RefreshAsync(), BudgetVariance.ReportPresentationFailure);
     private async void ActualCostsProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var addedProjects = e.AddedItems.OfType<BudgetProjectInfo>().ToArray();

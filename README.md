@@ -1,6 +1,6 @@
 # BusinessOS
 
-Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is implemented and pending full Windows verification; forecasting, analytics, cash flow, and invoice ingestion remain deferred.
+Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is **COMPLETE**. Block 3B3 Plan vs Actual is implemented, pending full Windows verification; forecasting, cash flow, and invoice ingestion remain deferred.
 
 BusinessOS is a local-first Windows desktop application foundation.
 
@@ -82,8 +82,6 @@ Deferred to later blocks:
 
 - audit log;
 - background jobs and durable queues;
-- BusinessProjects persistence and UI;
-- Budgeting persistence and UI;
 - MSIX installer;
 - GymOS compatibility and financial engine.
 

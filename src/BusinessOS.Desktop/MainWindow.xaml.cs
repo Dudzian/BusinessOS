@@ -58,7 +58,14 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         await RunUiOperationAsync(() => Budgeting.SelectProjectAsync(project), Budgeting.ReportPresentationFailure);
     }
     private async void BudgetsList_SelectionChanged(object sender, SelectionChangedEventArgs e) => await RunUiOperationAsync(() => Budgeting.SelectBudgetAsync((sender as ListView)?.SelectedItem as BudgetItem), Budgeting.ReportPresentationFailure);
-    private async void BudgetVersionsList_SelectionChanged(object sender, SelectionChangedEventArgs e) => await RunUiOperationAsync(() => Budgeting.SelectVersionAsync((sender as ListView)?.SelectedItem as BudgetVersionItem), Budgeting.ReportPresentationFailure);
+    private async void BudgetVersionsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var addedVersions = e.AddedItems.OfType<BudgetVersionItem>().ToArray();
+        if (addedVersions.Length != 1) return;
+
+        var version = addedVersions[0];
+        await RunUiOperationAsync(() => Budgeting.SelectVersionAsync(version), Budgeting.ReportPresentationFailure);
+    }
     private async void BudgetRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Budgeting.RefreshAsync(), Budgeting.ReportPresentationFailure);
     private void BudgetAdd_Click(object sender, RoutedEventArgs e) => Budgeting.BeginCreateBudget();
     private void BudgetRename_Click(object sender, RoutedEventArgs e) => Budgeting.BeginRenameBudget();

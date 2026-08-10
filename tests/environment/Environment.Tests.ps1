@@ -758,5 +758,13 @@ Assert 'Budgeting project selection consumes the unambiguous event project' {
  if($handler.Contains('(sender as ComboBox)?.SelectedItem')){throw 'Budgeting project selection rereads ComboBox.SelectedItem'}
 }
 
+Assert 'Budgeting version selection consumes the unambiguous event version' {
+ $source=Get-Content (Join-Path $RepoRoot 'src/BusinessOS.Desktop/MainWindow.xaml.cs') -Raw
+ $match=[regex]::Match($source,'(?s)private async void BudgetVersionsList_SelectionChanged\b.*?(?=\s*private async void BudgetRefresh_Click\b)')
+ if(-not$match.Success){throw 'Budgeting version selection handler not found'};$handler=$match.Value
+ foreach($required in 'e.AddedItems','OfType<BudgetVersionItem>()','addedVersions.Length != 1','Budgeting.SelectVersionAsync(version)','RunUiOperationAsync','Budgeting.ReportPresentationFailure'){if(-not$handler.Contains($required)){throw "Budgeting version selection contract missing: $required"}}
+ if($handler.Contains('(sender as ListView)?.SelectedItem')){throw 'Budgeting version selection rereads ListView.SelectedItem'}
+}
+
 Assert 'Windows verifier fails outside Windows' { if(-not $IsWindows){ Invoke-ExpectFailure -File 'pwsh' -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-File',(Join-Path $RepoRoot 'eng/verify-windows.ps1')) -WorkingDirectory $RepoRoot -Contains 'must run on Windows' | Out-Null } }
 if($script:Failures -gt 0){exit 1}

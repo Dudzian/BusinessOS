@@ -161,6 +161,25 @@ Assert 'desktop Ready smoke stabilizes BusinessProjects re-entry after the compa
     $helper = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-BusinessProjectStatusReady' }, $true))[0]
     if ($null -eq $helper -or $helper.Extent.Text -notmatch 'RequiredConsecutiveSuccesses\s+3' -or $helper.Extent.Text -notmatch 'Write-BusinessProjectStatusTimeoutDiagnostics' -or $helper.Extent.Text -notmatch 'Write-SmokeDiagnosticsToHost') { throw 'stable project wait does not provide consecutive semantic readiness and CI diagnostics' }
 }
+Assert 'desktop Ready smoke stabilizes BusinessProjects re-entry after Budgeting' {
+    $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
+    $tokens = $null; $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokePath, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "desktop smoke has parser errors: $($parseErrors.Message -join '; ')" }
+    $crud = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-CompaniesCrudSmoke' }, $true))[0]
+    if ($null -eq $crud) { throw 'desktop smoke is missing Invoke-CompaniesCrudSmoke' }
+    $source = $crud.Extent.Text
+    $budgeting = $source.IndexOf('Invoke-BudgetingCrudSmoke $Main', [StringComparison]::Ordinal)
+    if ($budgeting -lt 0) { throw 'Ready workflow does not invoke the Budgeting CRUD smoke' }
+    $transition = $source.IndexOf('ChangeBusinessProjectStatusButton', $budgeting, [StringComparison]::Ordinal)
+    if ($transition -lt 0) { throw 'project status transition is missing after Budgeting' }
+    $reentry = $source.Substring($budgeting, $transition - $budgeting)
+    foreach ($required in 'Invoke-BudgetingCrudSmoke $Main','Wait-BusinessProjectStatusReady','BusinessOS Gym Smoke Updated','Draft','Select-ContainingListItem','$projectState.ListItem','BusinessProjectsCrud: re-entry after Budgeting PASS') {
+        if (-not $reentry.Contains($required, [StringComparison]::Ordinal)) { throw "BusinessProjects re-entry after Budgeting is missing: $required" }
+    }
+    if ($reentry.IndexOf('Wait-BusinessProjectStatusReady', [StringComparison]::Ordinal) -le $reentry.IndexOf('Invoke-BudgetingCrudSmoke $Main', [StringComparison]::Ordinal)) { throw 'stable project readiness wait does not follow Budgeting' }
+    if ($reentry -match '(?s)\(\s*Get-NamedElements\b.*?BusinessOS Gym Smoke Updated.*?\)\s*\[') { throw 're-entry directly indexes a project search result' }
+}
 Assert 'recovery smoke selects the exact fixture backup through semantic UIA identity' {
     $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
     $tokens = $null; $parseErrors = $null

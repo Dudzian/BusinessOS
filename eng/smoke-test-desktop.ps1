@@ -535,7 +535,9 @@ function Invoke-CompaniesCrudSmoke($Main) {
         throw 'Updated project did not stabilize in BusinessProjectsList.'
     }
     Invoke-BudgetingCrudSmoke $Main
-    $projectsList=Get-AutomationIdElement $Main 'BusinessProjectsList'; Select-ContainingListItem (Get-NamedElements $projectsList 'BusinessOS Gym Smoke Updated')[0]
+    $projectState = Wait-BusinessProjectStatusReady $Main 'BusinessOS Gym Smoke Updated' 'Draft' 'BusinessProjects section did not restore the expected Draft project after Budgeting.'
+    Select-ContainingListItem $projectState.ListItem
+    Add-Content $diagnostics 'BusinessProjectsCrud: re-entry after Budgeting PASS'
     $statusButton=Get-AutomationIdElement $Main 'ChangeBusinessProjectStatusButton'; if($null-eq$statusButton-or-not$statusButton.Current.IsEnabled){throw 'Status transition button was not enabled for Draft.'}
     Invoke-AutomationIdButton $Main 'ChangeBusinessProjectStatusButton'
     Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Project status dialog did not open.' -Condition { Test-Visible (Get-AutomationIdElement $Main 'BusinessProjectStatusDialog') }

@@ -16,4 +16,4 @@ The top-level **Koszty rzeczywiste** workspace selects a project, displays its c
 
 ## Outside the block
 
-Invoice ingestion, purchase orders, vendors master data, tax/VAT accounting, banking, forecasting, cash flow, P&L, plan-vs-actual analytics, AI, POS, ERP, and GymOS integration remain outside Block 3B2.
+Plan vs Actual was outside Block 3B2 and is now implemented separately in Block 3B3. Invoice ingestion, purchase orders, vendors master data, tax/VAT accounting, banking, forecasting, cash flow, P&L, AI, POS, ERP, and GymOS integration remain outside Block 3B2.

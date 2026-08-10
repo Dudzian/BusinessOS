@@ -8,5 +8,6 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <ProjectReference Include="../../src/Modules/Companies/BusinessOS.Modules.Companies.Infrastructure/BusinessOS.Modules.Companies.Infrastructure.csproj" />
     <ProjectReference Include="../../src/Modules/BusinessProjects/BusinessOS.Modules.BusinessProjects.Infrastructure/BusinessOS.Modules.BusinessProjects.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Infrastructure/BusinessOS.Modules.Budgeting.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,23 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Actual_costs_vertical_slice_keeps_boundaries_and_desktop_contract()
+    {
+        var root = FindRepositoryRoot();
+        var domain = typeof(BusinessOS.Modules.Budgeting.Domain.ActualCost).Assembly;
+        domain.GetReferencedAssemblies().Select(x => x.Name ?? string.Empty).Should().OnlyContain(x => !x.Contains("Application") && !x.Contains("Infrastructure") && !x.Contains("Desktop") && !x.Contains("EntityFramework") && !x.Contains("Microsoft.UI.Xaml"));
+        var application = typeof(BusinessOS.Modules.Budgeting.Application.IActualCostsCrudService).Assembly;
+        application.GetReferencedAssemblies().Select(x => x.Name ?? string.Empty).Should().OnlyContain(x => !x.Contains("Infrastructure") && !x.Contains("Desktop"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        File.ReadAllText(Path.Combine(root, "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj")).Should().Contain("ActualCostsViewModel.cs");
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        var codeBehind = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs"));
+        string[] ids = ["ActualCostsSectionButton", "ActualCostsSectionPanel", "ActualCostsProjectSelector", "ActualCostsProjectCurrency", "RefreshActualCostsButton", "AddActualCostButton", "EditActualCostButton", "ArchiveActualCostButton", "ActualCostsEmptyState", "ActualCostsList", "ActualCostCapexTotal", "ActualCostOpexTotal", "ActualCostTotal", "ActualCostEditorPanel", "ActualCostKindInput", "ActualCostNameInput", "ActualCostAmountInput", "ActualCostDateInput", "ActualCostNoteInput", "SaveActualCostButton", "CancelActualCostButton", "ActualCostsOperationMessage"];
+        foreach (var id in ids) xaml.Should().Contain($"AutomationProperties.AutomationId=\"{id}\"");
+        foreach (var id in new[] { "ArchiveActualCostDialog", "ConfirmArchiveActualCostButton", "CancelArchiveActualCostButton" }) codeBehind.Should().Contain($"\"{id}\"");
+        foreach (var id in new[] { "ActualCostNameInput", "ActualCostAmountInput", "ActualCostNoteInput" }) { var element = XDocument.Parse(xaml).Descendants().Single(x => x.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == id)); element.Attribute("Text")!.Value.Should().Contain("Mode=TwoWay").And.Contain("UpdateSourceTrigger=PropertyChanged"); }
+    }
+    [Fact]
     public void Budgeting_desktop_contract_has_semantic_controls_and_live_editor_bindings()
     {
         var root = FindRepositoryRoot();
@@ -23,7 +40,7 @@ public sealed class ArchitectureRulesTests
             var element = XDocument.Parse(xaml).Descendants().Single(x => x.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == id));
             element.Attribute("Text")!.Value.Should().Contain("Mode=TwoWay").And.Contain("UpdateSourceTrigger=PropertyChanged");
         }
-        xaml.Should().NotContain("BudgetLineCurrencyInput").And.NotContain("ActualCost").And.NotContain("Invoice").And.NotContain("POS").And.NotContain("ERP");
+        xaml.Should().NotContain("BudgetLineCurrencyInput").And.NotContain("Invoice").And.NotContain("POS").And.NotContain("ERP");
         File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Infrastructure");
     }
     [Fact]

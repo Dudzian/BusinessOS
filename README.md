@@ -1,6 +1,6 @@
 # BusinessOS
 
-Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE** across domain, application, SQLite persistence, WinUI workflow, and the Windows `Ready` smoke. Actual Costs are deferred to the next block; forecasting, analytics, cash flow, and invoice ingestion remain deferred.
+Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is implemented and pending full Windows verification; forecasting, analytics, cash flow, and invoice ingestion remain deferred.
 
 BusinessOS is a local-first Windows desktop application foundation.
 

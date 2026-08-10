@@ -1,5 +1,7 @@
 # Budgeting — Block 3B1 (COMPLETE)
 
+This document covers planned budgeting. Project-owned manual costs are documented in [Block 3B2 — Actual Costs](actual-costs.md).
+
 Block 3B1 implements planned project budgets only. A `Budget` belongs to one Business Project, has a trimmed, project-unique active name, optimistic version, and Draft → Active → Archived lifecycle. Archive is a soft delete; archived budgets cannot be edited.
 
 Each `BudgetVersion` is a numbered immutable snapshot. Creating the next revision atomically copies every line to new `BudgetLine` identifiers, leaving the preceding snapshot unchanged. Only the latest version of a Draft budget is editable; Active and Archived budgets and historical versions are read-only.
@@ -18,4 +20,4 @@ The existing application startup coordinator inspects and migrates Companies, Bu
 
 Domain, application, SQLite integration, migrations, startup coordination, concurrency, transaction, architecture boundaries, and the WinUI workflow are complete. The existing Windows `Ready` scenario includes the end-to-end Budgeting workflow; it remains one of the same five top-level smoke scenarios.
 
-Actual Costs are deferred to the next block. Invoices, purchase orders, forecasting, cash flow, P&L, analytics, AI, banking, POS, ERP, and GymOS integrations are also out of scope.
+Actual Costs are implemented separately in Block 3B2. Invoices, purchase orders, forecasting, cash flow, P&L, analytics, AI, banking, POS, ERP, and GymOS integrations remain out of scope.

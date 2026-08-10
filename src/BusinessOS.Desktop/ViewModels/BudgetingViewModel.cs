@@ -122,7 +122,17 @@ public sealed class BudgetingViewModel : INotifyPropertyChanged
     public Task CreateInitialVersionAsync(CancellationToken ct = default) => CreateVersion(true, ct);
     public Task CreateNextVersionAsync(CancellationToken ct = default) => CreateVersion(false, ct);
     private async Task CreateVersion(bool initial, CancellationToken ct) { if (initial ? !CanCreateInitialVersion : !CanCreateNextVersion) return; await Mutating(async () => { var r = initial ? await service.CreateInitialVersionAsync(SelectedBudget!.Id, SelectedBudget.Version, null, ct) : await service.CreateNextVersionAsync(SelectedBudget!.Id, SelectedBudget.Version, null, ct); OperationMessage = r.SafeMessage; if (r.Status == BudgetingOperationStatus.Success) await ReloadBudgets(ct, SelectedBudget.Id, r.Value?.Id); else if (r.Status == BudgetingOperationStatus.ConcurrencyConflict) await ReloadBudgets(ct, SelectedBudget.Id); }, "Nie udało się utworzyć wersji."); }
-    public Task SelectVersionAsync(BudgetVersionItem? version, CancellationToken ct = default) { if (!CanSelectVersion) return Task.CompletedTask; selectedVersion = version; selectedLine = null; Replace(Lines, version?.Lines ?? []); NotifySelection(); return Task.CompletedTask; }
+    public Task SelectVersionAsync(BudgetVersionItem? version, CancellationToken ct = default)
+    {
+        if (!CanSelectVersion) return Task.CompletedTask;
+        BudgetVersionItem? currentVersion = null;
+        if (version is not null)
+        {
+            currentVersion = Versions.FirstOrDefault(x => x.Id == version.Id);
+            if (currentVersion is null) { OnPropertyChanged(nameof(SelectedVersion)); return Task.CompletedTask; }
+        }
+        selectedVersion = currentVersion; selectedLine = null; Replace(Lines, currentVersion?.Lines ?? []); NotifySelection(); return Task.CompletedTask;
+    }
     public void BeginAddLine() { if (!CanAddLine) return; editingLineId = null; LineKind = BudgetLineKind.Capex; LineName = LineNote = string.Empty; LineAmount = LineSortOrder = "0"; IsLineEditorOpen = true; NotifyLineEditor(); }
     public void BeginEditLine() { if (!CanEditLine) return; var l = SelectedLine!; editingLineId = l.Id; LineKind = l.Kind; LineName = l.Name; LineAmount = l.Amount.ToString(System.Globalization.CultureInfo.InvariantCulture); LineSortOrder = l.SortOrder.ToString(System.Globalization.CultureInfo.InvariantCulture); LineNote = l.Note ?? string.Empty; IsLineEditorOpen = true; NotifyLineEditor(); }
     public void CancelLineEditor() { if (!IsBusy) { editingLineId = null; IsLineEditorOpen = false; } }

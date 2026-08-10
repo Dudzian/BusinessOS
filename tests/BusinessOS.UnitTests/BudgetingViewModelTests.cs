@@ -22,6 +22,22 @@ public sealed class BudgetingViewModelTests
     [Fact] public async Task Initial_and_next_version_select_new_revision_and_copy_lines() { var p = Project(); var b = Budget(p.Id); var crud = new FakeCrud { Budgets = [b] }; var vm = await Selected(crud, p, b); await vm.CreateInitialVersionAsync(); vm.SelectedVersion!.Number.Should().Be(1); vm.BeginAddLine(); vm.LineName = "CAPEX"; vm.LineAmount = "100"; await vm.SaveLineAsync(); await vm.CreateNextVersionAsync(); vm.SelectedVersion!.Number.Should().Be(2); vm.Lines.Should().ContainSingle(x => x.Name == "CAPEX" && x.Amount == 100); var v1 = vm.Versions.Single(x => x.Number == 1); await vm.SelectVersionAsync(v1); vm.CanAddLine.Should().BeFalse(); }
     [Fact] public async Task Add_update_remove_lines_inherit_currency_and_recalculate_totals() { var p = Project(); var b = Budget(p.Id, 1); var v = Version(b.Id, 1); var crud = new FakeCrud { Budgets = [b], Versions = [v] }; var vm = await Selected(crud, p, b); vm.BeginAddLine(); vm.LineKind = BudgetLineKind.Revenue; vm.LineName = "Sales"; vm.LineAmount = "250"; await vm.SaveLineAsync(); crud.LastCurrency.Should().Be("PLN"); vm.RevenueTotal.Should().Be(250); vm.SelectedLine = vm.Lines.Single(); vm.BeginEditLine(); vm.LineAmount = "300"; await vm.SaveLineAsync(); vm.RevenueTotal.Should().Be(300); vm.SelectedLine = vm.Lines.Single(); await vm.RemoveSelectedLineAsync(); vm.RevenueTotal.Should().Be(0); }
     [Fact] public async Task Activation_capability_uses_latest_version_not_viewed_history() { var p = Project(); var b = Budget(p.Id, 2); var v1id = Guid.NewGuid(); var v1 = Version(b.Id, 1, [Line(v1id, BudgetLineKind.Capex, 100)], v1id); var v2 = Version(b.Id, 2); var crud = new FakeCrud { Budgets = [b], Versions = [v1, v2] }; var vm = await Selected(crud, p, b); await vm.SelectVersionAsync(v1); vm.CanActivateBudget.Should().BeFalse(); var l = Line(v2.Id, BudgetLineKind.Revenue, 1); crud.Versions = [v1, v2 with { Lines = [l] }]; await vm.RefreshAsync(); await vm.SelectVersionAsync(vm.Versions.Single(x => x.Number == 1)); vm.CanActivateBudget.Should().BeTrue(); }
+    [Fact]
+    public async Task Version_reselection_canonicalizes_stale_snapshot_to_current_version()
+    {
+        var p = Project(); var b = Budget(p.Id, 2); var v1Id = Guid.NewGuid(); var v2Id = Guid.NewGuid();
+        var v1 = Version(b.Id, 1, [Line(v1Id, BudgetLineKind.Capex, 100, "CAPEX")], v1Id);
+        var v2 = Version(b.Id, 2, [Line(v2Id, BudgetLineKind.Capex, 100, "CAPEX")], v2Id);
+        var crud = new FakeCrud { Budgets = [b], Versions = [v1, v2] }; var vm = await Selected(crud, p, b);
+        await vm.SelectVersionAsync(vm.Versions.Single(x => x.Number == 2)); var staleV2 = vm.SelectedVersion!;
+        vm.SelectedLine = vm.Lines.Single(); vm.BeginEditLine(); vm.LineAmount = "150"; await vm.SaveLineAsync();
+        var currentV2 = vm.Versions.Single(x => x.Id == staleV2.Id);
+        currentV2.Lines.Should().ContainSingle(x => x.Name == "CAPEX" && x.Amount == 150);
+        await vm.SelectVersionAsync(vm.Versions.Single(x => x.Number == 1)); vm.Lines.Should().ContainSingle(x => x.Name == "CAPEX" && x.Amount == 100);
+        await vm.SelectVersionAsync(staleV2);
+        vm.SelectedVersion!.Id.Should().Be(staleV2.Id); vm.SelectedVersion.Should().BeSameAs(currentV2);
+        vm.Lines.Should().ContainSingle(x => x.Name == "CAPEX" && x.Amount == 150); vm.CapexTotal.Should().Be(150);
+    }
     [Fact] public async Task Lifecycle_and_editors_gate_navigation_and_recovery_capabilities() { var p = Project(); var b = Budget(p.Id, 1); var vid = Guid.NewGuid(); var v = Version(b.Id, 1, [Line(vid, BudgetLineKind.Capex, 1)], vid); var crud = new FakeCrud { Budgets = [b], Versions = [v] }; var vm = await Selected(crud, p, b); vm.BeginRenameBudget(); vm.CanNavigate.Should().BeFalse(); vm.CancelBudgetEditor(); vm.BeginAddLine(); vm.CanNavigate.Should().BeFalse(); vm.CancelLineEditor(); vm.OpenActivateDialog(); vm.CanNavigate.Should().BeFalse(); vm.CloseLifecycleDialog(); vm.OpenArchiveDialog(); await vm.ArchiveSelectedBudgetAsync(); vm.Budgets.Should().BeEmpty(); }
     [Fact] public async Task Presentation_failure_is_safe() { var vm = new BudgetingViewModel(new FakeCrud(), new FakeLookup()); vm.ReportPresentationFailure(); vm.OperationMessage.Should().Be("Nie udało się wykonać operacji. Spróbuj ponownie."); await vm.InitializeAsync(); vm.CanNavigate.Should().BeTrue(); }
     [Fact]

@@ -10,6 +10,28 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Forecast_costs_vertical_slice_keeps_boundaries_and_stable_desktop_contract()
+    {
+        var root = FindRepositoryRoot();
+        var domainReferences = typeof(BusinessOS.Modules.Budgeting.Domain.ForecastCost).Assembly.GetReferencedAssemblies().Select(x => x.Name).ToArray();
+        domainReferences.Should().NotContain(x => x!.Contains("Application") || x.Contains("Infrastructure") || x.Contains("Desktop"));
+        var applicationReferences = typeof(BusinessOS.Modules.Budgeting.Application.IForecastCostsCrudService).Assembly.GetReferencedAssemblies().Select(x => x.Name).ToArray();
+        applicationReferences.Should().NotContain(x => x!.Contains("Infrastructure") || x.Contains("Desktop"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        File.ReadAllText(Path.Combine(root, "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj")).Should().Contain("ForecastCostsViewModel.cs");
+        var workspace = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/MainWorkspaceViewModel.cs"));
+        workspace.Should().Contain("ForecastCostsViewModel forecastCosts").And.NotContain("ForecastCostsViewModel? forecastCosts").And.NotContain("EmptyForecast").And.NotContain("dummy fallback");
+        var xaml = XDocument.Load(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        string[] ids = ["ForecastCostsSectionButton", "ForecastCostsSectionPanel", "ForecastCostsProjectSelector", "ForecastCostsProjectCurrency", "RefreshForecastCostsButton", "AddForecastCostButton", "EditForecastCostButton", "ArchiveForecastCostButton", "ForecastCostsEmptyState", "ForecastCostsList", "ForecastCostCapexTotal", "ForecastCostOpexTotal", "ForecastCostTotal", "ForecastCostEditorPanel", "ForecastCostKindInput", "ForecastCostNameInput", "ForecastCostAmountInput", "ForecastCostExpectedDateInput", "ForecastCostNoteInput", "SaveForecastCostButton", "CancelForecastCostButton", "ForecastCostsOperationMessage"];
+        foreach (var id in ids) xaml.Descendants().Should().Contain(e => e.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == id), id);
+        foreach (var id in new[] { "ForecastCostNameInput", "ForecastCostAmountInput", "ForecastCostNoteInput" })
+        {
+            var box = xaml.Descendants().Single(e => e.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == id)); var binding = box.Attribute("Text")!.Value; binding.Should().Contain("Mode=TwoWay").And.Contain("UpdateSourceTrigger=PropertyChanged");
+        }
+        var date = xaml.Descendants().Single(e => e.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == "ForecastCostExpectedDateInput")); date.Attribute("Date")!.Value.Should().Be("{Binding ForecastCostExpectedDate, Mode=TwoWay}");
+        var codeBehind = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs")); foreach (var id in new[] { "ArchiveForecastCostDialog", "ConfirmArchiveForecastCostButton", "CancelArchiveForecastCostButton" }) codeBehind.Should().Contain(id);
+    }
+    [Fact]
     public void Budget_variance_vertical_slice_keeps_query_workspace_and_read_only_ui_boundaries()
     {
         var root = FindRepositoryRoot();

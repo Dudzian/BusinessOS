@@ -58,6 +58,7 @@ public partial class App : Application
                 ActivatorUtilities.CreateInstance<BusinessProjectsViewModel>(activeHost.Services),
                 ActivatorUtilities.CreateInstance<BudgetingViewModel>(activeHost.Services),
                 ActivatorUtilities.CreateInstance<ActualCostsViewModel>(activeHost.Services),
+                ActivatorUtilities.CreateInstance<ForecastCostsViewModel>(activeHost.Services),
                 ActivatorUtilities.CreateInstance<BudgetVarianceViewModel>(activeHost.Services)),
             () => ShowRecovery(RecoveryOrigin.MainWindow));
         if (Volatile.Read(ref shutdownStarted) != 0 ||

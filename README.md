@@ -129,3 +129,7 @@ See [docs/persistence.md](docs/persistence.md) for persistence design notes.
 BusinessOS uses the [Windows-first CI policy](docs/ci-policy.md). Gate evidence is staged under `artifacts/ci-evidence`, and CI can be audited read-only without GitHub CLI using `eng/audit-github-ci.ps1`.
 
 Business projects belong to an active company and follow a controlled lifecycle. See [BusinessProjects](docs/business-projects.md).
+
+- Block 3B3 Plan vs Actual — COMPLETE
+- Block 3B4 Forecast Costs — implemented, pending full Windows verification
+- Deferred: EAC / advanced forecast analytics, cash flow, and invoice ingestion.

@@ -2,22 +2,23 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 namespace BusinessOS.Desktop.ViewModels;
 
-public enum WorkspaceSection { Companies, BusinessProjects, Budgeting, ActualCosts, BudgetVariance }
+public enum WorkspaceSection { Companies, BusinessProjects, Budgeting, ActualCosts, ForecastCosts, BudgetVariance }
 public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
 {
     private WorkspaceSection selectedSection;
-    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting, ActualCostsViewModel actualCosts, BudgetVarianceViewModel budgetVariance)
+    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting, ActualCostsViewModel actualCosts, ForecastCostsViewModel forecastCosts, BudgetVarianceViewModel budgetVariance)
     {
-        Companies = companies; Projects = projects; Budgeting = budgeting; ActualCosts = actualCosts; BudgetVariance = budgetVariance;
-        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged; ActualCosts.PropertyChanged += ChildChanged; BudgetVariance.PropertyChanged += ChildChanged;
+        Companies = companies; Projects = projects; Budgeting = budgeting; ActualCosts = actualCosts; BudgetVariance = budgetVariance; ForecastCosts = forecastCosts;
+        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged; ActualCosts.PropertyChanged += ChildChanged; BudgetVariance.PropertyChanged += ChildChanged; ForecastCosts.PropertyChanged += ChildChanged;
     }
     public CompaniesViewModel Companies { get; }
     public BusinessProjectsViewModel Projects { get; }
     public BudgetingViewModel Budgeting { get; }
     public ActualCostsViewModel ActualCosts { get; }
     public BudgetVarianceViewModel BudgetVariance { get; }
+    public ForecastCostsViewModel ForecastCosts { get; }
     public WorkspaceSection SelectedSection { get => selectedSection; private set { if (selectedSection == value) return; selectedSection = value; OnPropertyChanged(); } }
-    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate && ActualCosts.CanNavigate && BudgetVariance.CanNavigate;
+    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate && ActualCosts.CanNavigate && BudgetVariance.CanNavigate && ForecastCosts.CanNavigate;
     public bool CanOpenRecovery => CanNavigate;
     public async Task NavigateAsync(WorkspaceSection target, CancellationToken cancellationToken = default)
     {
@@ -37,6 +38,11 @@ public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
         {
             await ActualCosts.ReloadProjectsAsync(cancellationToken);
             if (!ActualCosts.LastProjectsReloadSucceeded) return;
+        }
+        if (target == WorkspaceSection.ForecastCosts)
+        {
+            await ForecastCosts.ReloadProjectsAsync(cancellationToken);
+            if (!ForecastCosts.LastProjectsReloadSucceeded) return;
         }
         if (target == WorkspaceSection.BudgetVariance)
         {

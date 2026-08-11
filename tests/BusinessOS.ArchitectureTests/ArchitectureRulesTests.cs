@@ -10,6 +10,25 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Budget_forecast_vertical_slice_keeps_query_workspace_and_read_only_ui_boundaries()
+    {
+        var root = FindRepositoryRoot();
+        var application = typeof(BusinessOS.Modules.Budgeting.Application.IBudgetForecastQueryService).Assembly;
+        Assert.Same(application, typeof(BusinessOS.Modules.Budgeting.Application.IBudgetForecastReadStore).Assembly);
+        application.GetReferencedAssemblies().Select(x => x.Name).Should().NotContain(x => x!.Contains("Infrastructure") || x.Contains("Desktop"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        File.ReadAllText(Path.Combine(root, "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj")).Should().Contain("BudgetForecastViewModel.cs");
+        var workspace = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/MainWorkspaceViewModel.cs"));
+        workspace.Should().Contain("BudgetForecastViewModel budgetForecast").And.NotContain("BudgetForecastViewModel? budgetForecast").And.NotContain("EmptyBudgetForecast").And.NotContain("dummy fallback");
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        string[] ids = ["BudgetForecastSectionButton", "BudgetForecastSectionPanel", "BudgetForecastProjectSelector", "BudgetForecastBudgetSelector", "BudgetForecastVersionSelector", "BudgetForecastCurrency", "BudgetForecastBudgetStatus", "RefreshBudgetForecastButton", "BudgetForecastCapexPlanned", "BudgetForecastCapexActual", "BudgetForecastCapexEtc", "BudgetForecastCapexEac", "BudgetForecastCapexVac", "BudgetForecastCapexUtilization", "BudgetForecastCapexState", "BudgetForecastOpexPlanned", "BudgetForecastOpexActual", "BudgetForecastOpexEtc", "BudgetForecastOpexEac", "BudgetForecastOpexVac", "BudgetForecastOpexUtilization", "BudgetForecastOpexState", "BudgetForecastTotalPlanned", "BudgetForecastTotalActual", "BudgetForecastTotalEtc", "BudgetForecastTotalEac", "BudgetForecastTotalVac", "BudgetForecastTotalUtilization", "BudgetForecastTotalState", "BudgetForecastOperationMessage"];
+        foreach (var id in ids) xaml.Should().Contain($"AutomationProperties.AutomationId=\"{id}\"");
+        foreach (var header in new[] { "Plan", "Wykonanie", "Pozostała prognoza (ETC)", "Prognoza końcowa (EAC)", "Odchylenie końcowe (VAC)", "Wykorzystanie EAC", "Stan" }) xaml.Should().Contain($"Text=\"{header}\"");
+        foreach (var forbidden in new[] { "AddBudgetForecast", "EditBudgetForecast", "ArchiveBudgetForecast", "SaveBudgetForecast", "DeleteBudgetForecast" }) xaml.Should().NotContain(forbidden);
+        var handlers = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs"));
+        foreach (var required in new[] { "e.AddedItems.OfType<BudgetProjectInfo>()", "e.AddedItems.OfType<BudgetForecastBudgetItem>()", "e.AddedItems.OfType<BudgetForecastVersionItem>()", "BudgetForecast.SelectProjectAsync(project)", "BudgetForecast.SelectBudgetAsync(budget)", "BudgetForecast.SelectVersionAsync(version)" }) handlers.Should().Contain(required);
+    }
+    [Fact]
     public void Forecast_costs_vertical_slice_keeps_boundaries_and_stable_desktop_contract()
     {
         var root = FindRepositoryRoot();

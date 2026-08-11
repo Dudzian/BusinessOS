@@ -1,6 +1,6 @@
 # BusinessOS
 
-Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is **COMPLETE**. Block 3B3 Plan vs Actual is implemented, pending full Windows verification; forecasting, cash flow, and invoice ingestion remain deferred.
+Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is **COMPLETE**. Block 3B3 Plan vs Actual is **COMPLETE**. Block 3B4 Forecast Costs is **COMPLETE**. Block 3B5 EAC / Plan vs Forecast is implemented, pending full Windows verification; cash flow and invoice ingestion remain deferred.
 
 BusinessOS is a local-first Windows desktop application foundation.
 
@@ -131,5 +131,6 @@ BusinessOS uses the [Windows-first CI policy](docs/ci-policy.md). Gate evidence 
 Business projects belong to an active company and follow a controlled lifecycle. See [BusinessProjects](docs/business-projects.md).
 
 - Block 3B3 Plan vs Actual — COMPLETE
-- Block 3B4 Forecast Costs — implemented, pending full Windows verification
-- Deferred: EAC / advanced forecast analytics, cash flow, and invoice ingestion.
+- Block 3B4 Forecast Costs — COMPLETE
+- Block 3B5 EAC / Plan vs Forecast — implemented, pending full Windows verification
+- Deferred: advanced forecast analytics, cash flow, and invoice ingestion.

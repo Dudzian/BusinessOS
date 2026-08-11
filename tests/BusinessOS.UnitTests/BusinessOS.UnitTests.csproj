@@ -8,6 +8,7 @@
     <Compile Include="../../src/BusinessOS.Desktop/ViewModels/ActualCostsViewModel.cs" Link="ViewModels/ActualCostsViewModel.cs" />
     <Compile Include="../../src/BusinessOS.Desktop/ViewModels/BudgetVarianceViewModel.cs" Link="ViewModels/BudgetVarianceViewModel.cs" />
     <Compile Include="../../src/BusinessOS.Desktop/ViewModels/BudgetForecastViewModel.cs" Link="ViewModels/BudgetForecastViewModel.cs" />
+    <Compile Include="../../src/BusinessOS.Desktop/ViewModels/CostCashFlowViewModel.cs" Link="ViewModels/CostCashFlowViewModel.cs" />
     <Compile Include="../../src/BusinessOS.Desktop/ViewModels/ForecastCostsViewModel.cs" Link="ViewModels/ForecastCostsViewModel.cs" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />

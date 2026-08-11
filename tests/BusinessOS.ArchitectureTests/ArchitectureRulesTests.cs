@@ -10,6 +10,22 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Cost_cash_flow_contracts_remain_in_application_and_ui_is_read_only()
+    {
+        var root = FindRepositoryRoot();
+        var assembly = typeof(BusinessOS.Modules.Budgeting.Application.ICostCashFlowQueryService).Assembly;
+        Assert.Same(assembly, typeof(BusinessOS.Modules.Budgeting.Application.ICostCashFlowReadStore).Assembly);
+        assembly.GetReferencedAssemblies().Select(x => x.Name).Should().NotContain(x => x!.Contains("Infrastructure") || x.Contains("Desktop"));
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        File.ReadAllText(Path.Combine(root, "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj")).Should().Contain("CostCashFlowViewModel.cs");
+        var workspace = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/MainWorkspaceViewModel.cs")); workspace.Should().Contain("CostCashFlowViewModel costCashFlow").And.NotContain("CostCashFlowViewModel? costCashFlow").And.NotContain("EmptyCostCashFlow").And.NotContain("dummy fallback");
+        foreach (var id in new[] { "CostCashFlowSectionButton", "CostCashFlowSectionPanel", "CostCashFlowProjectSelector", "CostCashFlowProjectCurrency", "RefreshCostCashFlowButton", "CostCashFlowEmptyState", "CostCashFlowList", "CostCashFlowCapexActualTotal", "CostCashFlowCapexForecastTotal", "CostCashFlowCapexExpectedTotal", "CostCashFlowOpexActualTotal", "CostCashFlowOpexForecastTotal", "CostCashFlowOpexExpectedTotal", "CostCashFlowActualTotal", "CostCashFlowForecastTotal", "CostCashFlowExpectedTotal", "CostCashFlowOperationMessage" }) xaml.Should().Contain(id);
+        xaml.Should().Contain("AutomationProperties.Name=\"{Binding SemanticName}\"").And.Contain("CAPEX wykonanie").And.Contain("TOTAL razem");
+        foreach (var mutation in new[] { "AddCostCashFlow", "EditCostCashFlow", "ArchiveCostCashFlow", "DeleteCostCashFlow", "SaveCostCashFlow", "CostCashFlowDate" }) xaml.Should().NotContain(mutation);
+        var handler = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs")); handler.Should().Contain("CostCashFlowProjectSelector_SelectionChanged").And.Contain("e.AddedItems").And.Contain("OfType<BudgetProjectInfo>()").And.Contain("addedProjects.Length != 1").And.Contain("CostCashFlow.SelectProjectAsync(project)");
+    }
+    [Fact]
     public void Budget_forecast_vertical_slice_keeps_query_workspace_and_read_only_ui_boundaries()
     {
         var root = FindRepositoryRoot();

@@ -22,11 +22,17 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public BudgetForecastViewModel BudgetForecast => Workspace.BudgetForecast;
     public CostCashFlowViewModel CostCashFlow => Workspace.CostCashFlow;
     public ForecastCostsViewModel ForecastCosts => Workspace.ForecastCosts;
+    public SupplierInvoicesViewModel SupplierInvoices => Workspace.SupplierInvoices;
     public IReadOnlyList<CompanyStatusValue> CompanyStatuses { get; } = Enum.GetValues<CompanyStatusValue>();
     public Visibility CompaniesVisibility => Workspace.SelectedSection == WorkspaceSection.Companies ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ProjectsVisibility => Workspace.SelectedSection == WorkspaceSection.BusinessProjects ? Visibility.Visible : Visibility.Collapsed;
     public Visibility BudgetingVisibility => Workspace.SelectedSection == WorkspaceSection.Budgeting ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ActualCostsVisibility => Workspace.SelectedSection == WorkspaceSection.ActualCosts ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SupplierInvoicesVisibility => Workspace.SelectedSection == WorkspaceSection.SupplierInvoices ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SupplierInvoicesEmptyVisibility => SupplierInvoices.SelectedProject is not null && SupplierInvoices.Invoices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility SupplierInvoiceEditorVisibility => SupplierInvoices.IsEditorOpen ? Visibility.Visible : Visibility.Collapsed;
+    public DateTimeOffset? SupplierInvoiceInvoiceDate { get => new(SupplierInvoices.InvoiceDate.ToDateTime(TimeOnly.MinValue)); set { if (value is not null) SupplierInvoices.InvoiceDate = DateOnly.FromDateTime(value.Value.DateTime); } }
+    public DateTimeOffset? SupplierInvoiceDueDate { get => new(SupplierInvoices.DueDate.ToDateTime(TimeOnly.MinValue)); set { if (value is not null) SupplierInvoices.DueDate = DateOnly.FromDateTime(value.Value.DateTime); } }
     public Visibility ForecastCostsVisibility => Workspace.SelectedSection == WorkspaceSection.ForecastCosts ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ForecastCostsEmptyVisibility => ForecastCosts.SelectedProject is not null && ForecastCosts.ForecastCosts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ForecastCostEditorVisibility => ForecastCosts.IsEditorOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -51,7 +57,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow(MainViewModel shell, MainWorkspaceViewModel workspace, Action openRecovery)
     {
         InitializeComponent(); Shell = shell; Workspace = workspace; this.openRecovery = openRecovery;
-        Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed; Budgeting.PropertyChanged += Changed; ActualCosts.PropertyChanged += Changed; BudgetVariance.PropertyChanged += Changed; BudgetForecast.PropertyChanged += Changed; CostCashFlow.PropertyChanged += Changed; ForecastCosts.PropertyChanged += Changed;
+        Workspace.PropertyChanged += Changed; Companies.PropertyChanged += Changed; Projects.PropertyChanged += Changed; Budgeting.PropertyChanged += Changed; ActualCosts.PropertyChanged += Changed; BudgetVariance.PropertyChanged += Changed; BudgetForecast.PropertyChanged += Changed; CostCashFlow.PropertyChanged += Changed; ForecastCosts.PropertyChanged += Changed; SupplierInvoices.PropertyChanged += Changed;
         if (Content is FrameworkElement root) root.DataContext = this;
         _ = RunUiOperationAsync(Companies.RefreshAsync, Companies.ReportPresentationFailure);
         _ = RunUiOperationAsync(() => Projects.InitializeAsync(CancellationToken.None), Projects.ReportPresentationFailure);
@@ -59,10 +65,19 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     private void Changed(object? sender, PropertyChangedEventArgs args)
     {
-        foreach (var name in new[] { nameof(CompaniesVisibility), nameof(ProjectsVisibility), nameof(BudgetingVisibility), nameof(ActualCostsVisibility), nameof(BudgetVarianceVisibility), nameof(BudgetForecastVisibility), nameof(CostCashFlowVisibility), nameof(CostCashFlowEmptyVisibility), nameof(ForecastCostsVisibility), nameof(ForecastCostsEmptyVisibility), nameof(ForecastCostEditorVisibility), nameof(ForecastCostExpectedDate), nameof(ActualCostsEmptyVisibility), nameof(ActualCostEditorVisibility), nameof(ActualCostDate), nameof(CompanyEditorVisibility), nameof(CompaniesEmptyVisibility), nameof(ProjectEditorVisibility), nameof(ProjectsEmptyVisibility), nameof(BudgetsEmptyVisibility), nameof(BudgetEditorVisibility), nameof(LineEditorVisibility), nameof(ProjectStartDate), nameof(ProjectOpeningDate) })
+        foreach (var name in new[] { nameof(CompaniesVisibility), nameof(ProjectsVisibility), nameof(BudgetingVisibility), nameof(ActualCostsVisibility), nameof(BudgetVarianceVisibility), nameof(BudgetForecastVisibility), nameof(CostCashFlowVisibility), nameof(CostCashFlowEmptyVisibility), nameof(SupplierInvoicesVisibility), nameof(SupplierInvoicesEmptyVisibility), nameof(SupplierInvoiceEditorVisibility), nameof(SupplierInvoiceInvoiceDate), nameof(SupplierInvoiceDueDate), nameof(ForecastCostsVisibility), nameof(ForecastCostsEmptyVisibility), nameof(ForecastCostEditorVisibility), nameof(ForecastCostExpectedDate), nameof(ActualCostsEmptyVisibility), nameof(ActualCostEditorVisibility), nameof(ActualCostDate), nameof(CompanyEditorVisibility), nameof(CompaniesEmptyVisibility), nameof(ProjectEditorVisibility), nameof(ProjectsEmptyVisibility), nameof(BudgetsEmptyVisibility), nameof(BudgetEditorVisibility), nameof(LineEditorVisibility), nameof(ProjectStartDate), nameof(ProjectOpeningDate) })
             PropertyChanged?.Invoke(this, new(name));
     }
 
+    private async void SupplierInvoicesSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.SupplierInvoices), SupplierInvoices.ReportPresentationFailure);
+    private async void SupplierInvoicesProjectSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) { var added = e.AddedItems.OfType<BudgetProjectInfo>().ToArray(); if (added.Length == 1) await RunUiOperationAsync(() => SupplierInvoices.SelectProjectAsync(added.Single()), SupplierInvoices.ReportPresentationFailure); }
+    private async void SupplierInvoicesList_SelectionChanged(object sender, SelectionChangedEventArgs e) { var added = e.AddedItems.OfType<SupplierInvoiceItem>().ToArray(); if (added.Length == 1) await RunUiOperationAsync(() => SupplierInvoices.SelectInvoiceAsync(added.Single()), SupplierInvoices.ReportPresentationFailure); }
+    private async void SupplierInvoicesRefresh_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => SupplierInvoices.RefreshAsync(), SupplierInvoices.ReportPresentationFailure);
+    private void SupplierInvoiceAdd_Click(object sender, RoutedEventArgs e) => SupplierInvoices.BeginAddInvoice();
+    private void SupplierInvoiceEdit_Click(object sender, RoutedEventArgs e) => SupplierInvoices.BeginEditInvoice();
+    private async void SupplierInvoiceSave_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => SupplierInvoices.SaveInvoiceAsync(), SupplierInvoices.ReportPresentationFailure);
+    private void SupplierInvoiceCancel_Click(object sender, RoutedEventArgs e) => SupplierInvoices.CancelEditor();
+    private async void SupplierInvoiceArchive_Click(object sender, RoutedEventArgs e) { SupplierInvoices.BeginArchiveInvoice(); if (!SupplierInvoices.IsArchiveDialogOpen) return; var dialog = Dialog("ArchiveSupplierInvoiceDialog", "Archiwizacja faktury", $"Czy zarchiwizować fakturę {SupplierInvoices.ArchiveInvoiceNumber}?", "ConfirmArchiveSupplierInvoiceButton", "CancelArchiveSupplierInvoiceButton"); if (await dialog.ShowAsync() == ContentDialogResult.Primary) await SupplierInvoices.ConfirmArchiveAsync(); else SupplierInvoices.CancelArchive(); }
     private async void CompaniesSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Companies), Projects.ReportPresentationFailure);
     private async void ProjectsSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.BusinessProjects), Projects.ReportPresentationFailure);
     private async void BudgetingSection_Click(object sender, RoutedEventArgs e) => await RunUiOperationAsync(() => Workspace.NavigateAsync(WorkspaceSection.Budgeting), Budgeting.ReportPresentationFailure);

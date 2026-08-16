@@ -39,6 +39,10 @@ public readonly record struct ForecastCostId(Guid Value)
 {
     public static ForecastCostId New() => new(Guid.NewGuid());
 }
+public readonly record struct SupplierInvoiceId(Guid Value)
+{
+    public static SupplierInvoiceId New() => new(Guid.NewGuid());
+}
 
 public readonly record struct UserId(Guid Value)
 {

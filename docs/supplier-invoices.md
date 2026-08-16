@@ -5,3 +5,7 @@ Block 3B7 provides a manual register of supplier cost invoices assigned to a bus
 Invoice identity is `(project, trimmed uppercase supplier, trimmed uppercase invoice number)`. It remains unique after soft archive. Updates and archives use an incrementing version for optimistic concurrency.
 
 This slice deliberately has no VAT split, payment status, bank or reconciliation behavior, vendor master data, attachment/file ingestion, OCR, or posting/conversion to Actual Cost. Invoices remain independent of Actual Cost and Forecast Cost.
+
+## Block 3B8 extension
+
+Block 3B8 adds optional manual posting to Actual Costs. Posted invoices remain active and readable but cannot be edited, archived, or posted again. See [Supplier Invoice Posting](supplier-invoice-posting.md).

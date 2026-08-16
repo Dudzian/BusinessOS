@@ -10,6 +10,18 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Supplier_invoice_posting_uses_application_contract_atomic_store_and_stable_ui()
+    {
+        var root = FindRepositoryRoot(); var application = typeof(BusinessOS.Modules.Budgeting.Application.ISupplierInvoicePostingService).Assembly;
+        Assert.Same(application, typeof(BusinessOS.Modules.Budgeting.Application.ISupplierInvoicePostingStore).Assembly);
+        application.GetReferencedAssemblies().Select(x => x.Name).Should().NotContain(x => x!.Contains("Infrastructure") || x.Contains("Desktop"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        var implementation = File.ReadAllText(Path.Combine(root, "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Application/SupplierInvoicePostingServices.cs")); implementation.Should().Contain("ISupplierInvoicePostingStore store").And.Contain("store.AddActualCostAsync").And.Contain("store.SaveAsync").And.NotContain("IActualCostsCrudService").And.NotContain("ISupplierInvoicesCrudService").And.NotContain("CreateAsync(").And.NotContain("UpdateAsync(");
+        var infrastructure = File.ReadAllText(Path.Combine(root, "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Infrastructure/Persistence/SupplierInvoicePostingStore.cs")); infrastructure.Should().Contain("BudgetingDbContext").And.Contain("SaveChangesAsync");
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml")); foreach (var id in new[] { "PostSupplierInvoiceButton", "PostSupplierInvoiceDialog", "PostSupplierInvoiceSourceSupplier", "PostSupplierInvoiceSourceNumber", "PostSupplierInvoiceSourceAmount", "PostSupplierInvoiceSourceInvoiceDate", "PostSupplierInvoiceKindSelector", "CancelPostSupplierInvoiceButton", "ConfirmPostSupplierInvoiceButton" }) xaml.Should().Contain($"AutomationProperties.AutomationId=\"{id}\""); xaml.Should().Contain("Text=\"{Binding PostingStatusText}\"").And.Contain("AutomationProperties.Name=\"{Binding SemanticName}\"");
+    }
+
+    [Fact]
     public void Supplier_invoice_vertical_slice_preserves_module_workspace_and_ui_boundaries()
     {
         var root = FindRepositoryRoot();

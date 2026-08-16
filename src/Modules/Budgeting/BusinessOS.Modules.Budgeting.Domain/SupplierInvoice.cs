@@ -20,6 +20,9 @@ public sealed class SupplierInvoice
     public DateTimeOffset UpdatedAtUtc { get; private set; }
     public long Version { get; private set; } = 1;
     public DateTimeOffset? ArchivedAtUtc { get; private set; }
+    public ActualCostId? PostedActualCostId { get; private set; }
+    public DateTimeOffset? PostedAtUtc { get; private set; }
+    public bool IsPosted => PostedActualCostId is not null;
 
     public static SupplierInvoice Create(BusinessProjectId projectId, string supplierName, string invoiceNumber, Money amount, DateOnly invoiceDate, DateOnly dueDate, string? note, DateTimeOffset now)
     {
@@ -31,9 +34,18 @@ public sealed class SupplierInvoice
     }
     public void Update(string supplierName, string invoiceNumber, Money amount, DateOnly invoiceDate, DateOnly dueDate, string? note, DateTimeOffset now)
     {
-        EnsureActive(); SetFields(supplierName, invoiceNumber, amount, invoiceDate, dueDate, note); Touch(now);
+        EnsureMutable(); SetFields(supplierName, invoiceNumber, amount, invoiceDate, dueDate, note); Touch(now);
     }
-    public void Archive(DateTimeOffset now) { EnsureActive(); ArchivedAtUtc = now.ToUniversalTime(); Touch(now); }
+    public void Archive(DateTimeOffset now) { EnsureMutable(); ArchivedAtUtc = now.ToUniversalTime(); Touch(now); }
+    public void MarkPosted(ActualCostId actualCostId, DateTimeOffset now)
+    {
+        EnsureActive();
+        if (IsPosted) throw new InvalidOperationException("Invoice is already posted.");
+        if (actualCostId.Value == Guid.Empty) throw new ArgumentException("Actual cost is required.", nameof(actualCostId));
+        PostedActualCostId = actualCostId;
+        PostedAtUtc = now.ToUniversalTime();
+        Touch(now);
+    }
     private void SetFields(string supplierName, string invoiceNumber, Money amount, DateOnly invoiceDate, DateOnly dueDate, string? note)
     {
         var supplier = supplierName?.Trim() ?? string.Empty;
@@ -47,5 +59,6 @@ public sealed class SupplierInvoice
         SupplierName = supplier; SupplierKey = supplier.ToUpperInvariant(); InvoiceNumber = number; InvoiceNumberKey = number.ToUpperInvariant(); Amount = amount; InvoiceDate = invoiceDate; DueDate = dueDate; Note = string.IsNullOrEmpty(normalizedNote) ? null : normalizedNote;
     }
     private void EnsureActive() { if (ArchivedAtUtc is not null) throw new InvalidOperationException("Archived invoice cannot be changed."); }
+    private void EnsureMutable() { EnsureActive(); if (IsPosted) throw new InvalidOperationException("Posted invoice cannot be changed."); }
     private void Touch(DateTimeOffset now) { UpdatedAtUtc = now.ToUniversalTime(); Version++; }
 }

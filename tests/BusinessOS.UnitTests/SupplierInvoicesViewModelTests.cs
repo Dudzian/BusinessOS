@@ -1,3 +1,4 @@
+using System.Globalization;
 using BusinessOS.Desktop.ViewModels;
 using BusinessOS.Modules.Budgeting.Application;
 using Xunit;
@@ -87,11 +88,61 @@ public sealed class SupplierInvoicesViewModelTests
         await vm.SelectInvoiceAsync(a); vm.BeginArchiveInvoice(); service.ArchiveStatus = SupplierInvoiceOperationStatus.Success; service.Items = [b]; await vm.ConfirmArchiveAsync(); AssertArchiveCleared(vm); Assert.Single(vm.Invoices); Assert.Equal(b.Amount, vm.InvoiceTotal);
     }
 
+    [Fact]
+    public async Task Posting_captures_target_blocks_navigation_and_success_selects_canonical_posted_row()
+    {
+        var a = Item(number: "A", amount: 120.5m, version: 7); var b = Item(number: "B", version: 2); var service = new FakeService { Items = [a, b] }; var posting = new FakePosting(); var vm = new SupplierInvoicesViewModel(service, posting, new FakeLookup { Items = [P1] }, TimeProvider.System); await vm.ReloadProjectsAsync(); await vm.SelectInvoiceAsync(a); Assert.True(vm.CanPostInvoice); vm.BeginPostInvoice(); Assert.True(vm.IsPostingDialogOpen); Assert.Null(vm.PostingKind); Assert.Equal(("Acme", "A", "120.5", "PLN", "2026-01-10"), (vm.PostingSupplierName, vm.PostingInvoiceNumber, vm.PostingAmount, vm.PostingCurrency, vm.PostingInvoiceDate)); Assert.False(vm.CanNavigate);
+        await vm.SelectInvoiceAsync(b); vm.PostingKind = BusinessOS.Modules.Budgeting.Domain.ActualCostKind.Capex; service.Items = [a with { PostedActualCostId = Guid.NewGuid(), PostedAtUtc = DateTimeOffset.UtcNow, Version = 8 }, b]; await vm.ConfirmPostingAsync(); Assert.Equal((a.Id, 7L), posting.Target); Assert.False(vm.IsPostingDialogOpen); Assert.True(vm.SelectedInvoice!.IsPosted); Assert.Equal(a.Id, vm.SelectedInvoice.Id); Assert.True(vm.CanNavigate);
+    }
+
+    [Fact]
+    public async Task Posting_requires_kind_cancel_clears_and_posted_capabilities_are_disabled()
+    {
+        var pending = Item(); var posted = pending with { PostedActualCostId = Guid.NewGuid(), PostedAtUtc = DateTimeOffset.UtcNow }; var posting = new FakePosting(); var vm = new SupplierInvoicesViewModel(new FakeService { Items = [pending] }, posting, new FakeLookup { Items = [P1] }, TimeProvider.System); await vm.ReloadProjectsAsync(); await vm.SelectInvoiceAsync(pending); vm.BeginPostInvoice(); await vm.ConfirmPostingAsync(); Assert.Equal(0, posting.Calls); Assert.Equal("Wybierz rodzaj kosztu.", vm.OperationMessage); Assert.True(vm.IsPostingDialogOpen); vm.CancelPosting(); Assert.False(vm.IsPostingDialogOpen); Assert.Equal("", vm.PostingSupplierName); Assert.Null(vm.PostingKind);
+        var service = new FakeService { Items = [posted] }; vm = new(service, posting, new FakeLookup { Items = [P1] }, TimeProvider.System); await vm.ReloadProjectsAsync(); await vm.SelectInvoiceAsync(posted); Assert.False(vm.CanPostInvoice); Assert.False(vm.CanEditInvoice); Assert.False(vm.CanArchiveInvoice);
+    }
+
+    [Fact]
+    public async Task Posting_invoice_date_is_invariant_iso_and_clears_with_capture()
+    {
+        var original = CultureInfo.CurrentCulture; var originalUi = CultureInfo.CurrentUICulture;
+        try { CultureInfo.CurrentCulture = new("en-US"); CultureInfo.CurrentUICulture = new("en-US"); var item = Item(); var vm = Vm(new() { Items = [item] }, new() { Items = [P1] }); await vm.ReloadProjectsAsync(); await vm.SelectInvoiceAsync(item); vm.BeginPostInvoice(); Assert.Equal("2026-01-10", vm.PostingInvoiceDate); vm.CancelPosting(); Assert.Equal(string.Empty, vm.PostingInvoiceDate); }
+        finally { CultureInfo.CurrentCulture = original; CultureInfo.CurrentUICulture = originalUi; }
+    }
+
+    [Fact]
+    public async Task Posting_statuses_and_busy_gate_follow_dialog_policy_without_delays()
+    {
+        foreach (var status in Enum.GetValues<SupplierInvoicePostingStatus>())
+        {
+            var item = Item(); var service = new FakeService { Items = [item] }; var posting = new FakePosting { Status = status }; var vm = new SupplierInvoicesViewModel(service, posting, new FakeLookup { Items = [P1] }, TimeProvider.System); await vm.ReloadProjectsAsync(); await vm.SelectInvoiceAsync(item); vm.BeginPostInvoice(); vm.PostingKind = BusinessOS.Modules.Budgeting.Domain.ActualCostKind.Opex;
+            var callsBeforeConfirm = service.ListCalls;
+            if (status == SupplierInvoicePostingStatus.Success) service.Items = [item with { PostedActualCostId = Guid.NewGuid(), PostedAtUtc = DateTimeOffset.UtcNow, Version = 2 }];
+            await vm.ConfirmPostingAsync(); Assert.Equal("safe", vm.OperationMessage);
+            if (status is SupplierInvoicePostingStatus.ValidationFailure or SupplierInvoicePostingStatus.PersistenceFailure)
+            {
+                Assert.True(vm.IsPostingDialogOpen); Assert.Equal(BusinessOS.Modules.Budgeting.Domain.ActualCostKind.Opex, vm.PostingKind); Assert.Equal(("Acme", "INV-1", "10", "PLN", "2026-01-10"), (vm.PostingSupplierName, vm.PostingInvoiceNumber, vm.PostingAmount, vm.PostingCurrency, vm.PostingInvoiceDate)); Assert.False(vm.CanNavigate); Assert.True(vm.CanConfirmPosting); Assert.True(vm.CanCancelPosting); Assert.Equal(callsBeforeConfirm, service.ListCalls);
+            }
+            else
+            {
+                Assert.False(vm.IsPostingDialogOpen); Assert.Null(vm.PostingKind); Assert.Equal(("", "", "", "", ""), (vm.PostingSupplierName, vm.PostingInvoiceNumber, vm.PostingAmount, vm.PostingCurrency, vm.PostingInvoiceDate)); Assert.True(vm.CanNavigate);
+                Assert.Equal(status == SupplierInvoicePostingStatus.Cancelled ? callsBeforeConfirm : callsBeforeConfirm + 1, service.ListCalls);
+            }
+        }
+        var source = Item(); var gatedService = new FakeService { Items = [source] }; var gated = new FakePosting { Gate = new(TaskCreationOptions.RunContinuationsAsynchronously) }; var busy = new SupplierInvoicesViewModel(gatedService, gated, new FakeLookup { Items = [P1] }, TimeProvider.System); await busy.ReloadProjectsAsync(); await busy.SelectInvoiceAsync(source); busy.BeginPostInvoice(); busy.PostingKind = BusinessOS.Modules.Budgeting.Domain.ActualCostKind.Capex; var task = busy.ConfirmPostingAsync(); Assert.True(busy.IsBusy); Assert.False(busy.CanNavigate); Assert.False(busy.CanPostInvoice); Assert.False(busy.CanConfirmPosting); Assert.False(busy.CanCancelPosting); gated.Gate.SetResult(new(SupplierInvoicePostingStatus.PersistenceFailure, "safe", null)); await task; Assert.True(busy.IsPostingDialogOpen); Assert.False(busy.CanNavigate); Assert.True(busy.CanConfirmPosting); Assert.True(busy.CanCancelPosting);
+    }
+
     private static void AssertAllBlocked(SupplierInvoicesViewModel vm) { Assert.True(vm.IsBusy); Assert.False(vm.CanNavigate); Assert.False(vm.CanSelectProject); Assert.False(vm.CanSelectInvoice); Assert.False(vm.CanRefresh); Assert.False(vm.CanAddInvoice); Assert.False(vm.CanEditInvoice); Assert.False(vm.CanArchiveInvoice); Assert.False(vm.CanSaveInvoice); Assert.False(vm.CanCancelEditor); }
     private static void AssertArchiveCleared(SupplierInvoicesViewModel vm) { Assert.False(vm.IsArchiveDialogOpen); Assert.Null(vm.ArchiveSupplierName); Assert.Null(vm.ArchiveInvoiceNumber); Assert.True(vm.CanNavigate); }
     private static void AssertEditorFields(IEnumerable<string?> fields) { foreach (var n in new[] { "SupplierName", "InvoiceNumber", "Amount", "InvoiceDate", "DueDate", "Note" }) Assert.Contains(n, fields); }
-    private static SupplierInvoicesViewModel Vm(FakeService service, FakeLookup lookup, TimeProvider? time = null) => new(service, lookup, time ?? TimeProvider.System);
+    private static SupplierInvoicesViewModel Vm(FakeService service, FakeLookup lookup, TimeProvider? time = null) => new(service, new FakePosting(), lookup, time ?? TimeProvider.System);
 
+
+    private sealed class FakePosting : ISupplierInvoicePostingService
+    {
+        public SupplierInvoicePostingStatus Status = SupplierInvoicePostingStatus.Success; public int Calls; public (Guid, long)? Target; public TaskCompletionSource<SupplierInvoicePostingResult<SupplierInvoicePostingReceipt>>? Gate;
+        public Task<SupplierInvoicePostingResult<SupplierInvoicePostingReceipt>> PostAsync(Guid id, long version, BusinessOS.Modules.Budgeting.Domain.ActualCostKind kind, CancellationToken ct = default) { Calls++; Target = (id, version); return Gate?.Task ?? Task.FromResult(new SupplierInvoicePostingResult<SupplierInvoicePostingReceipt>(Status, "safe", null)); }
+    }
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider { public override DateTimeOffset GetUtcNow() => value.ToUniversalTime(); public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.CreateCustomTimeZone("fixed", value.Offset, "fixed", "fixed"); }
     private sealed class FakeLookup : IBudgetingProjectLookup
     {

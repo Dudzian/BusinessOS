@@ -104,6 +104,17 @@ public sealed class SupplierInvoicesTests
         await Assert.ThrowsAsync<OperationCanceledException>(() => new Fixture().Service.ListAsync(ProjectId, cts.Token));
     }
 
+    [Fact]
+    public async Task Posted_invoice_is_readable_mapped_and_mutation_guard_precedes_version()
+    {
+        var f = new Fixture(); var invoice = SupplierInvoice.Create(new(ProjectId), "Acme", "INV-1", new(120.5m, new("PLN")), InvoiceDate, DueDate, null, DateTimeOffset.UnixEpoch); var costId = ActualCostId.New(); var postedAt = new DateTimeOffset(2026, 1, 20, 12, 0, 0, TimeSpan.Zero); invoice.MarkPosted(costId, postedAt); f.Store.Entity = invoice; f.Store.Rows = [invoice];
+        Assert.Equal(SupplierInvoiceOperationStatus.Posted, (await f.Service.UpdateAsync(invoice.Id.Value, 1, "X", "X", 1, "PLN", InvoiceDate, DueDate, null)).Status);
+        Assert.Equal(SupplierInvoiceOperationStatus.Posted, (await f.Service.ArchiveAsync(invoice.Id.Value, 1)).Status);
+        var listed = Assert.Single(await f.Service.ListAsync(ProjectId)); var fetched = Assert.IsType<SupplierInvoiceItem>(await f.Service.GetAsync(invoice.Id.Value));
+        foreach (var item in new[] { listed, fetched }) { Assert.True(item.IsPosted); Assert.Equal(costId.Value, item.PostedActualCostId); Assert.Equal(postedAt, item.PostedAtUtc); Assert.Equal("Zaksięgowana", item.PostingStatusText); Assert.Equal("Supplier=Acme | Invoice=INV-1 | Amount=120.5 PLN | InvoiceDate=2026-01-10 | DueDate=2026-02-10", item.SemanticName); }
+        Assert.Equal("Nie zaksięgowana", SupplierInvoicesCrudService.Map(Invoice()).PostingStatusText);
+    }
+
     private static async Task AssertSafeRead(Func<Task> action)
     {
         var ex = await Assert.ThrowsAsync<SupplierInvoicesReadException>(action);

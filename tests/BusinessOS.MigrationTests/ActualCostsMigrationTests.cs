@@ -21,7 +21,7 @@ public sealed class ActualCostsMigrationTests : IDisposable
     public async Task Fresh_database_applies_all_budgeting_migrations_and_creates_cost_indexes()
     {
         await using var db = Context(); await db.Database.MigrateAsync();
-        (await Strings("SELECT MigrationId FROM __EFMigrationsHistory_Budgeting ORDER BY MigrationId")).Should().Equal("20260808231124_InitialBudgetingPersistence", "20260810122833_AddActualCosts", "20260811102427_AddForecastCosts", "20260811173437_AddSupplierInvoices");
+        (await Strings("SELECT MigrationId FROM __EFMigrationsHistory_Budgeting ORDER BY MigrationId")).Should().Equal("20260808231124_InitialBudgetingPersistence", "20260810122833_AddActualCosts", "20260811102427_AddForecastCosts", "20260811173437_AddSupplierInvoices", "20260816175745_AddSupplierInvoicePosting");
         (await Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='actual_costs'")).Should().Be(1);
         var indexes = await Strings("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='actual_costs'"); indexes.Should().Contain("IX_actual_costs_business_project_id").And.Contain("IX_actual_costs_business_project_id_incurred_on");
         (await Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='forecast_costs'")).Should().Be(1);

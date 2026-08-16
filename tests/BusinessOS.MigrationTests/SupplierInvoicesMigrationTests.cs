@@ -19,9 +19,17 @@ public sealed class SupplierInvoicesMigrationTests : IDisposable
     [Fact]
     public async Task Fresh_database_contains_exact_supplier_invoice_columns_and_indexes()
     {
-        await using var db = Context(); await db.Database.MigrateAsync();
+        await using var db = Context(); await db.Database.GetService<IMigrator>().MigrateAsync("20260811173437_AddSupplierInvoices");
         Assert.Equal(new[] { "amount", "archived_at_utc", "business_project_id", "created_at_utc", "currency", "due_date", "id", "invoice_date", "invoice_number", "invoice_number_key", "note", "supplier_key", "supplier_name", "updated_at_utc", "version" }, (await Strings("SELECT name FROM pragma_table_info('supplier_invoices') ORDER BY name")));
-        var indexes = await Indexes(); Assert.Contains(indexes, x => x.Name == "IX_supplier_invoices_business_project_id" && !x.Unique); Assert.Contains(indexes, x => x.Name == "IX_supplier_invoices_business_project_id_due_date" && !x.Unique); Assert.Contains(indexes, x => x.Name == "IX_supplier_invoices_business_project_id_supplier_key_invoice_number_key" && x.Unique);
+        var indexes = await Indexes(); Assert.Equal(3, indexes.Count); Assert.Contains(indexes, x => x.Name == "IX_supplier_invoices_business_project_id" && !x.Unique); Assert.Contains(indexes, x => x.Name == "IX_supplier_invoices_business_project_id_due_date" && !x.Unique); Assert.Contains(indexes, x => x.Name == "IX_supplier_invoices_business_project_id_supplier_key_invoice_number_key" && x.Unique);
+    }
+
+    [Fact]
+    public async Task Posting_migration_adds_foreign_key_and_pair_check()
+    {
+        await using var db = Context(); await db.Database.MigrateAsync();
+        Assert.Equal(1, await Scalar("SELECT COUNT(*) FROM pragma_foreign_key_list('supplier_invoices') WHERE [table]='actual_costs' AND [from]='posted_actual_cost_id' AND [to]='id' AND on_delete='RESTRICT'"));
+        await using var connection = new SqliteConnection($"Data Source={PathName};Pooling=False"); await connection.OpenAsync(); await using var command = connection.CreateCommand(); command.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='supplier_invoices'"; var sql = (string)(await command.ExecuteScalarAsync())!; Assert.Contains("CK_supplier_invoices_posting_pair", sql); Assert.Contains("posted_actual_cost_id IS NOT NULL AND posted_at_utc IS NOT NULL", sql);
     }
 
     [Fact]

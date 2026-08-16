@@ -74,6 +74,184 @@ function Set-AutomationValue($Root, [string]$AutomationId, [string]$Value) {
     if ($null -eq $element) { throw "UI Automation input was not found: $AutomationId" }
     $element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($Value)
 }
+function Set-AutomationCalendarDate($Main, [string]$AutomationId, [DateTime]$Date) {
+    $target = $Date.Date
+    $targetText = $target.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    $picker = Get-AutomationIdElement $Main $AutomationId
+    if ($null -eq $picker) { throw "CalendarDatePicker was not found: $AutomationId target=$targetText" }
+    if (-not $picker.Current.IsEnabled) { throw "CalendarDatePicker is disabled: $AutomationId target=$targetText" }
+
+    $invokePattern = $null
+    if (-not $picker.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokePattern)) {
+        throw "CalendarDatePicker InvokePattern is missing: $AutomationId target=$targetText"
+    }
+
+    $monthViewCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'MonthViewScrollViewer')
+    $dataItemCondition = [System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::DataItem)
+    $root = [System.Windows.Automation.AutomationElement]::RootElement
+    $pickerProcessId = $picker.Current.ProcessId
+    $invokePattern.Invoke()
+
+    $calendarView = $null
+    try {
+        Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage "Exactly one semantic active MonthViewScrollViewer was not found for $AutomationId target=$targetText." -Condition {
+            try {
+                $monthViewsByRuntimeId = @{}
+                foreach ($view in @($root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $monthViewCondition))) {
+                    if ($view.Current.ProcessId -eq $pickerProcessId) { $monthViewsByRuntimeId[(@($view.GetRuntimeId()) -join '.')] = $view }
+                }
+                $activeMonthViews = @{}
+                $candidateDiagnostics = @()
+                foreach ($entry in $monthViewsByRuntimeId.GetEnumerator()) {
+                    $view = $entry.Value
+                    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+                    $templateRoot = $view
+                    $header = $null;$previous = $null;$next = $null
+                    while ($null -ne $templateRoot) {
+                        $header = Get-AutomationIdElement $templateRoot 'HeaderButton'
+                        $previous = Get-AutomationIdElement $templateRoot 'PreviousButton'
+                        $next = Get-AutomationIdElement $templateRoot 'NextButton'
+                        if ($null -ne $header -and $null -ne $previous -and $null -ne $next) { break }
+                        $templateRoot = $walker.GetParent($templateRoot)
+                    }
+                    $logicalItems = @($view.FindAll([System.Windows.Automation.TreeScope]::Descendants, $dataItemCondition))
+                    $gridItemCount = 0;$selectionItemCount = 0;$semanticDayCount = 0
+                    foreach ($item in $logicalItems) {
+                        $gridPattern = $null;$selectionPattern = $null
+                        $hasGrid = $item.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern, [ref]$gridPattern)
+                        $hasSelection = $item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionPattern)
+                        if ($hasGrid) { $gridItemCount++ }
+                        if ($hasSelection) { $selectionItemCount++ }
+                        if ($hasGrid -and $hasSelection) { $semanticDayCount++ }
+                    }
+                    $isSemanticActiveCandidate = $null -ne $templateRoot -and $semanticDayCount -gt 0
+                    if ($isSemanticActiveCandidate) {
+                        $activeMonthViews[$entry.Key] = [pscustomobject]@{ View=$view;Calendar=$templateRoot;Header=$header;Previous=$previous;Next=$next }
+                    }
+                    $headerName = if ($null -ne $header) { $header.Current.Name } else { $null }
+                    $candidateDiagnostics += "RuntimeId=$($entry.Key) ProcessId=$($view.Current.ProcessId) HeaderButtonFound=$($null-ne$header) HeaderButtonName='$headerName' PreviousButtonFound=$($null-ne$previous) NextButtonFound=$($null-ne$next) LogicalDataItemCount=$($logicalItems.Count) GridItemPatternCount=$gridItemCount SelectionItemPatternCount=$selectionItemCount SemanticActiveCandidate=$isSemanticActiveCandidate"
+                }
+                $selectedRuntimeId = if ($activeMonthViews.Count -eq 1) { foreach ($entry in $activeMonthViews.GetEnumerator()) { $entry.Key } } else { $null }
+                $script:supplierInvoiceMonthViewDiscoveryDiagnostics = "target=$targetText pickerProcessId=$pickerProcessId MonthViewScrollViewerCandidateCount=$($monthViewsByRuntimeId.Count) candidates=[$($candidateDiagnostics-join'; ')] activeMonthViewCandidateCount=$($activeMonthViews.Count) selectedMonthViewRuntimeId=$selectedRuntimeId"
+                if ($activeMonthViews.Count -ne 1) { return $false }
+                foreach ($activeEntry in $activeMonthViews.GetEnumerator()) { $script:openedSupplierInvoiceCalendar = $activeEntry.Value }
+                return $true
+            } catch { return $false }
+        }
+    } catch {
+        Add-Content $diagnostics "Calendar MonthView discovery failure: $script:supplierInvoiceMonthViewDiscoveryDiagnostics"
+        throw
+    }
+    $activeCalendar = $script:openedSupplierInvoiceCalendar
+    Add-Content $diagnostics "Calendar MonthView discovery: $script:supplierInvoiceMonthViewDiscoveryDiagnostics"
+    Remove-Variable openedSupplierInvoiceCalendar -Scope Script -ErrorAction SilentlyContinue
+    Remove-Variable supplierInvoiceMonthViewDiscoveryDiagnostics -Scope Script -ErrorAction SilentlyContinue
+    if ($null -eq $activeCalendar) { throw "Semantic active MonthViewScrollViewer was not identified for $AutomationId target=$targetText" }
+    $calendarView = $activeCalendar.View
+    $calendar = $activeCalendar.Calendar
+    $header = $activeCalendar.Header
+    $previous = $activeCalendar.Previous
+    $next = $activeCalendar.Next
+
+    $culture = [Globalization.CultureInfo]::CurrentCulture
+    $calendarModel = $culture.DateTimeFormat.Calendar
+    $targetEra = $calendarModel.GetEra($target)
+    $targetYear = $calendarModel.GetYear($target)
+    $targetMonth = $calendarModel.GetMonth($target)
+    $targetDay = $calendarModel.GetDayOfMonth($target)
+    $daysInTargetMonth = $calendarModel.GetDaysInMonth($targetYear, $targetMonth, $targetEra)
+    $normalize = { param([string]$Text) (($Text -replace '[\u200e\u200f\u202a-\u202e\u2066-\u2069]', '') -replace '\s+', ' ').Trim() }
+    $targetHeader = & $normalize $target.ToString('Y', $culture)
+    $navigationCount = 0
+    while ((& $normalize $header.Current.Name) -cne $targetHeader) {
+        $displayed = $null
+        $headerText = & $normalize $header.Current.Name
+        foreach ($offset in -2400..2400) {
+            $candidateMonth = $target.AddMonths($offset)
+            if ((& $normalize $candidateMonth.ToString('Y', $culture)) -ceq $headerText) { $displayed = $candidateMonth; break }
+        }
+        if ($null -eq $displayed) { throw "CalendarView header could not be parsed: '$headerText' target=$targetText" }
+        $button = if ($displayed -lt $target) { $next } else { $previous }
+        $buttonInvoke = $null
+        if (-not $button.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$buttonInvoke)) {
+            throw "CalendarView navigation InvokePattern is missing; header='$headerText' target=$targetText"
+        }
+        $oldHeader = $headerText
+        $buttonInvoke.Invoke()
+        Wait-BusinessOSCondition -TimeoutSeconds 5 -RequiredConsecutiveSuccesses 2 -TimeoutMessage "CalendarView month did not change from '$oldHeader' target=$targetText." -Condition {
+            try { (& $normalize $header.Current.Name) -cne $oldHeader } catch { return $false }
+        }
+        $navigationCount++
+        if ($navigationCount -gt 2400) { throw "CalendarView navigation exceeded its semantic limit target=$targetText" }
+    }
+
+    $normalizedHeader = & $normalize $header.Current.Name
+    if ($calendarView.Current.AutomationId -ne 'MonthViewScrollViewer' -or $normalizedHeader -cne $targetHeader) {
+        throw "CalendarView month header mismatch: HeaderButton='$normalizedHeader' view='$($calendarView.Current.AutomationId)' target=$targetText"
+    }
+    $canonicalByRuntimeId = @{}
+    foreach ($day in @($calendarView.FindAll([System.Windows.Automation.TreeScope]::Descendants, $dataItemCondition))) {
+        $runtimeId = @($day.GetRuntimeId()) -join '.'
+        if ($canonicalByRuntimeId.ContainsKey($runtimeId)) { continue }
+        $gridPattern = $null
+        $selectionPattern = $null
+        $gridAvailable = $day.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern, [ref]$gridPattern)
+        $selectionAvailable = $day.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionPattern)
+        $ordinal = 0
+        $ordinalAvailable = [int]::TryParse((& $normalize $day.Current.Name), [Globalization.NumberStyles]::Integer, $culture, [ref]$ordinal)
+        $canonicalByRuntimeId[$runtimeId] = [pscustomobject]@{
+            Element = $day; RuntimeId = $runtimeId; Name = $day.Current.Name
+            GridAvailable = $gridAvailable; Row = if ($gridAvailable) { $gridPattern.Current.Row } else { $null }
+            Column = if ($gridAvailable) { $gridPattern.Current.Column } else { $null }
+            SelectionAvailable = $selectionAvailable; SelectionPattern = $selectionPattern
+            OrdinalAvailable = $ordinalAvailable; Ordinal = if ($ordinalAvailable) { $ordinal } else { $null }
+            ExpectedDayLabel = if ($ordinalAvailable) { $ordinal.ToString($culture) } else { $null }
+        }
+    }
+    $logicalDays = @($canonicalByRuntimeId.Values | Sort-Object Row, Column)
+    $activeRuns = [Collections.ArrayList]::new()
+    $completeRuns = [Collections.ArrayList]::new()
+    foreach ($logicalDay in $logicalDays) {
+        if (-not $logicalDay.GridAvailable -or -not $logicalDay.OrdinalAvailable) { continue }
+        foreach ($run in @($activeRuns)) {
+            if ($logicalDay.Ordinal -eq $run.ExpectedOrdinal) {
+                [void]$run.Items.Add($logicalDay)
+                $run.ExpectedOrdinal++
+                if ($run.ExpectedOrdinal -gt $daysInTargetMonth) { [void]$completeRuns.Add($run); [void]$activeRuns.Remove($run) }
+            } else { [void]$activeRuns.Remove($run) }
+        }
+        if ($logicalDay.Ordinal -eq 1) {
+            $newRun = [pscustomobject]@{ ExpectedOrdinal = 2; Items = [Collections.ArrayList]::new() }
+            [void]$newRun.Items.Add($logicalDay)
+            if ($daysInTargetMonth -eq 1) { [void]$completeRuns.Add($newRun) } else { [void]$activeRuns.Add($newRun) }
+        }
+    }
+    $candidateDiagnostics = @($logicalDays | ForEach-Object { "RuntimeId=$($_.RuntimeId) Name='$($_.Name)' Row=$($_.Row) Column=$($_.Column) GridItemPattern=$($_.GridAvailable) SelectionItemPattern=$($_.SelectionAvailable) InferredOrdinal=$($_.Ordinal) ExpectedDayLabel='$($_.ExpectedDayLabel)'" })
+    $runDiagnostics = @($completeRuns | ForEach-Object { "RuntimeIds=$(($_.Items | ForEach-Object RuntimeId) -join ',')" })
+    Add-Content $diagnostics "Calendar date target=$targetText HeaderButton='$normalizedHeader' targetEra=$targetEra targetYear=$targetYear targetMonth=$targetMonth targetDay=$targetDay daysInTargetMonth=$daysInTargetMonth logicalDataItemCount=$($logicalDays.Count) completeMonthRuns=$($completeRuns.Count) detectedRuns=$($runDiagnostics -join '; ') candidates: $($candidateDiagnostics -join '; ')"
+    if ($completeRuns.Count -eq 0) { throw "CalendarView has no complete target-month logical run 1..$daysInTargetMonth; target=$targetText" }
+    if ($completeRuns.Count -ne 1) { throw "CalendarView has multiple complete target-month logical runs: $($completeRuns.Count); target=$targetText" }
+    $targetItems = @()
+    foreach ($run in $completeRuns) { foreach ($item in $run.Items) { if ($item.Ordinal -eq $targetDay) { $targetItems += $item } } }
+    if ($targetItems.Count -eq 0) { throw "CalendarView target ordinal is absent from canonical run: ordinal=$targetDay target=$targetText" }
+    if ($targetItems.Count -ne 1) { throw "CalendarView target ordinal is duplicated inside canonical run: ordinal=$targetDay count=$($targetItems.Count) target=$targetText" }
+    foreach ($targetItem in $targetItems) {
+        if (-not $targetItem.SelectionAvailable) { throw "Target CalendarViewDayItem SelectionItemPattern is missing: RuntimeId=$($targetItem.RuntimeId) ordinal=$targetDay target=$targetText" }
+        Add-Content $diagnostics "Calendar date selected target RuntimeId=$($targetItem.RuntimeId) target=$targetText"
+        $targetItem.SelectionPattern.Select()
+    }
+
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage "CalendarDatePicker selection did not update Date binding: $AutomationId target=$targetText." -Condition {
+        try {
+            $valuePattern = $null
+            if (-not $picker.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)) { return $false }
+            $committed = [DateTime]::MinValue
+            return [DateTime]::TryParse((& $normalize $valuePattern.Current.Value), $culture, [Globalization.DateTimeStyles]::AllowWhiteSpaces, [ref]$committed) -and $committed.Date -eq $target
+        } catch { return $false }
+    }
+}
 function Get-ContainingListItem($Element) {
     $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
     $current = $Element
@@ -536,18 +714,33 @@ function Get-SupplierInvoicesReadinessState($Main,[string]$ExpectedProject) {
     try {$selector=Get-AutomationIdElement $Main 'SupplierInvoicesProjectSelector';$list=Get-AutomationIdElement $Main 'SupplierInvoicesList';$add=Get-AutomationIdElement $Main 'AddSupplierInvoiceButton';$currency=Get-AutomationIdElement $Main 'SupplierInvoicesProjectCurrency';$semantic=Get-ComboBoxSemanticSelection $selector $ExpectedProject;$logical=@();if($null-ne$list){$condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::ListItem);$logical=@($list.FindAll([System.Windows.Automation.TreeScope]::Children,$condition))};$logicalRowNames=@($logical|ForEach-Object{$_.Current.Name});[pscustomobject]@{Selector=$selector;Semantic=$semantic;Currency=$currency;List=$list;Add=$add;LogicalRows=$logical;LogicalRowNames=$logicalRowNames;Ready=$semantic.IsExpected-and$null-ne$currency-and$currency.Current.Name-eq'PLN'-and$null-ne$list-and$logical.Count-eq0-and$null-ne$add-and$add.Current.IsEnabled}}catch{$false}
 }
 function Test-SupplierInvoiceEditorReady($Main) {
-    try {$supplier=Get-AutomationIdElement $Main 'SupplierInvoiceSupplierInput';$number=Get-AutomationIdElement $Main 'SupplierInvoiceNumberInput';$amount=Get-AutomationIdElement $Main 'SupplierInvoiceAmountInput';$invoiceDate=Get-AutomationIdElement $Main 'SupplierInvoiceInvoiceDateInput';$dueDate=Get-AutomationIdElement $Main 'SupplierInvoiceDueDateInput';$save=Get-AutomationIdElement $Main 'SaveSupplierInvoiceButton';$cancel=Get-AutomationIdElement $Main 'CancelSupplierInvoiceButton';(Test-AutomationValueInputReady $supplier)-and(Test-AutomationValueInputReady $number)-and(Test-AutomationValueInputReady $amount)-and$null-ne$invoiceDate-and$invoiceDate.Current.IsEnabled-and$null-ne$dueDate-and$dueDate.Current.IsEnabled-and$null-ne$save-and$save.Current.IsEnabled-and$null-ne$cancel-and$cancel.Current.IsEnabled}catch{$false}
+    try {$supplier=Get-AutomationIdElement $Main 'SupplierInvoiceSupplierInput';$number=Get-AutomationIdElement $Main 'SupplierInvoiceNumberInput';$amount=Get-AutomationIdElement $Main 'SupplierInvoiceAmountInput';$invoiceDate=Get-AutomationIdElement $Main 'SupplierInvoiceInvoiceDateInput';$dueDate=Get-AutomationIdElement $Main 'SupplierInvoiceDueDateInput';$invoiceInvoke=$null;$dueInvoke=$null;$save=Get-AutomationIdElement $Main 'SaveSupplierInvoiceButton';$cancel=Get-AutomationIdElement $Main 'CancelSupplierInvoiceButton';(Test-AutomationValueInputReady $supplier)-and(Test-AutomationValueInputReady $number)-and(Test-AutomationValueInputReady $amount)-and$null-ne$invoiceDate-and$invoiceDate.Current.IsEnabled-and$invoiceDate.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$invoiceInvoke)-and$null-ne$dueDate-and$dueDate.Current.IsEnabled-and$dueDate.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$dueInvoke)-and$null-ne$save-and$save.Current.IsEnabled-and$null-ne$cancel-and$cancel.Current.IsEnabled}catch{$false}
 }
 function Test-SupplierInvoiceEditorClosed($Main) {try{$save=Get-AutomationIdElement $Main 'SaveSupplierInvoiceButton';$cancel=Get-AutomationIdElement $Main 'CancelSupplierInvoiceButton';$list=Get-AutomationIdElement $Main 'SupplierInvoicesList';($null-eq$save-or-not$save.Current.IsEnabled)-and($null-eq$cancel-or-not$cancel.Current.IsEnabled)-and$null-ne$list-and$list.Current.IsEnabled}catch{$false}}
 function Write-SupplierInvoicesTimeoutDiagnostics($Main,[string]$Phase,[string]$ExpectedProject) {
-    try {Add-Content $diagnostics "Supplier Invoices phase=$Phase expected project=$ExpectedProject";$selector=Get-AutomationIdElement $Main 'SupplierInvoicesProjectSelector';$semantic=Get-ComboBoxSemanticSelection $selector $ExpectedProject;Add-Content $diagnostics "semantic selected project=$($semantic.SelectedItemNames-join',')";foreach($id in 'SupplierInvoicesProjectCurrency','SupplierInvoicesTotal','AddSupplierInvoiceButton','EditSupplierInvoiceButton','ArchiveSupplierInvoiceButton','SupplierInvoiceEditorPanel','SupplierInvoiceSupplierInput','SupplierInvoiceNumberInput','SupplierInvoiceAmountInput','SupplierInvoiceInvoiceDateInput','SupplierInvoiceDueDateInput','SupplierInvoiceNoteInput','ArchiveSupplierInvoiceDialog','CancelArchiveSupplierInvoiceButton','ConfirmArchiveSupplierInvoiceButton','SupplierInvoicesOperationMessage'){Add-Content $diagnostics "${id}: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id))"};$list=Get-AutomationIdElement $Main 'SupplierInvoicesList';$rows=@();if($null-ne$list){$condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::ListItem);$byRuntime=@{};foreach($candidate in @($list.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition))){$item=Get-ContainingListItem $candidate;if($null-ne$item){$runtime=@($item.GetRuntimeId())-join'.';$byRuntime[$runtime]=$item}};$rows=@($byRuntime.GetEnumerator())};Add-Content $diagnostics "logical invoice row count=$($rows.Count)";foreach($entry in $rows){$name=$entry.Value.Current.Name;Add-Content $diagnostics "SemanticName=$name RuntimeId=$($entry.Key)"}}catch{Add-Content $diagnostics "Supplier Invoices diagnostics failure: $($_.Exception.GetType().Name)"}finally{Write-SmokeDiagnosticsToHost}
+    try {
+        Add-Content $diagnostics "Supplier Invoices phase=$Phase expected project=$ExpectedProject"
+        $selector=Get-AutomationIdElement $Main 'SupplierInvoicesProjectSelector';$semantic=Get-ComboBoxSemanticSelection $selector $ExpectedProject
+        Add-Content $diagnostics "semantic selected project=$($semantic.SelectedItemNames-join',')"
+        foreach($id in 'SupplierInvoicesProjectCurrency','SupplierInvoicesTotal','AddSupplierInvoiceButton','EditSupplierInvoiceButton','ArchiveSupplierInvoiceButton','SupplierInvoiceEditorPanel','SupplierInvoiceSupplierInput','SupplierInvoiceNumberInput','SupplierInvoiceAmountInput','SupplierInvoiceInvoiceDateInput','SupplierInvoiceDueDateInput','SupplierInvoiceNoteInput','ArchiveSupplierInvoiceDialog','CancelArchiveSupplierInvoiceButton','ConfirmArchiveSupplierInvoiceButton','SupplierInvoicesOperationMessage'){Add-Content $diagnostics "${id}: $(Format-AutomationElementState (Get-AutomationIdElement $Main $id))"}
+        foreach ($id in 'SupplierInvoiceInvoiceDateInput','SupplierInvoiceDueDateInput') {
+            $picker=Get-AutomationIdElement $Main $id;$valuePattern=$null;$invokePattern=$null
+            if($null-eq$picker){Add-Content $diagnostics "CalendarDatePicker AutomationId=$id not found";continue}
+            $hasValue=$picker.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$valuePattern);$hasInvoke=$picker.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$invokePattern)
+            $readOnly=if($hasValue){$valuePattern.Current.IsReadOnly}else{$null};$value=if($hasValue){$valuePattern.Current.Value}else{$null}
+            Add-Content $diagnostics "CalendarDatePicker AutomationId=$id ControlType=$($picker.Current.ControlType.ProgrammaticName) IsEnabled=$($picker.Current.IsEnabled) ValuePattern=$hasValue ValuePattern.IsReadOnly=$readOnly Value='$value' InvokePattern=$hasInvoke"
+        }
+        $calendarRoot=[System.Windows.Automation.AutomationElement]::RootElement;$monthCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,'MonthViewScrollViewer');$calendarViews=@($calendarRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,$monthCondition));Add-Content $diagnostics "calendar flyout found=$($calendarViews.Count-gt0) logical month view count=$($calendarViews.Count)"
+        foreach($view in $calendarViews){$calendar=$view;$header=$null;$walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker;while($null-ne$calendar-and$null-eq$header){$header=Get-AutomationIdElement $calendar 'HeaderButton';$calendar=$walker.GetParent($calendar)};Add-Content $diagnostics "HeaderButton name='$($header.Current.Name)' active calendar view=month"}
+        $list=Get-AutomationIdElement $Main 'SupplierInvoicesList';$rows=@();if($null-ne$list){$condition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,[System.Windows.Automation.ControlType]::ListItem);$byRuntime=@{};foreach($candidate in @($list.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition))){$item=Get-ContainingListItem $candidate;if($null-ne$item){$runtime=@($item.GetRuntimeId())-join'.';$byRuntime[$runtime]=$item}};$rows=@($byRuntime.GetEnumerator())};Add-Content $diagnostics "logical invoice row count=$($rows.Count)";foreach($entry in $rows){$name=$entry.Value.Current.Name;Add-Content $diagnostics "SemanticName=$name RuntimeId=$($entry.Key)"}
+    }catch{Add-Content $diagnostics "Supplier Invoices diagnostics failure: $($_.Exception.GetType().Name)"}finally{Write-SmokeDiagnosticsToHost}
 }
 function Invoke-SupplierInvoicesPhase($Main,[string]$Phase,[string]$Project,[scriptblock]$Action) {try{&$Action}catch{Write-SupplierInvoicesTimeoutDiagnostics $Main $Phase $Project;throw}}
 function Invoke-SupplierInvoicesCrudSmoke($Main) {
     $project='BusinessOS Gym Smoke Updated';$orderedSeparator=' <ordered> ';$initialOrderedRows='Supplier=Smoke Utilities Vendor | Invoice=SMOKE-UTIL-001 | Amount=30 PLN | InvoiceDate=2026-01-15 | DueDate=2026-01-31'+$orderedSeparator+'Supplier=Smoke Equipment Vendor | Invoice=SMOKE-INV-001 | Amount=120 PLN | InvoiceDate=2026-01-10 | DueDate=2026-02-10';$updatedOrderedRows='Supplier=Smoke Utilities Vendor | Invoice=SMOKE-UTIL-001 | Amount=30 PLN | InvoiceDate=2026-01-15 | DueDate=2026-01-31'+$orderedSeparator+'Supplier=Smoke Equipment Vendor | Invoice=SMOKE-INV-001 | Amount=135 PLN | InvoiceDate=2026-01-10 | DueDate=2026-02-10';$archivedOrderedRows='Supplier=Smoke Equipment Vendor | Invoice=SMOKE-INV-001 | Amount=135 PLN | InvoiceDate=2026-01-10 | DueDate=2026-02-10';Invoke-AutomationIdButton $Main 'SupplierInvoicesSectionButton'
     Invoke-SupplierInvoicesPhase $Main 'readiness' $project {Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoices project selector not ready.' -Condition{try{$selector=Get-AutomationIdElement $Main 'SupplierInvoicesProjectSelector';$null-ne$selector-and$selector.Current.IsEnabled}catch{$false}};Select-ComboBoxExactSemanticItem $Main 'SupplierInvoicesProjectSelector' $project;Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoices readiness failed.' -Condition{try{(Get-SupplierInvoicesReadinessState $Main $project).Ready}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: readiness PASS'
-    Invoke-SupplierInvoicesPhase $Main 'create invoice 1' $project {Invoke-AutomationIdButton $Main 'AddSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice editor readiness failed.' -Condition{Test-SupplierInvoiceEditorReady $Main};Set-AutomationValue $Main 'SupplierInvoiceSupplierInput' 'Smoke Equipment Vendor';Set-AutomationValue $Main 'SupplierInvoiceNumberInput' 'SMOKE-INV-001';Set-AutomationValue $Main 'SupplierInvoiceAmountInput' '120';Set-AutomationValue $Main 'SupplierInvoiceInvoiceDateInput' '2026-01-10';Set-AutomationValue $Main 'SupplierInvoiceDueDateInput' '2026-02-10';Set-AutomationValue $Main 'SupplierInvoiceNoteInput' 'smoke invoice';Invoke-AutomationIdButton $Main 'SaveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice create failed.' -Condition{try{(Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 120 'PLN' '2026-01-10' '2026-02-10').Matches-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'120'-and(Test-SupplierInvoiceEditorClosed $Main)}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: create PASS'
-    Invoke-SupplierInvoicesPhase $Main 'create invoice 2' $project {Invoke-AutomationIdButton $Main 'AddSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Second Supplier Invoice editor readiness failed.' -Condition{Test-SupplierInvoiceEditorReady $Main};Set-AutomationValue $Main 'SupplierInvoiceSupplierInput' 'Smoke Utilities Vendor';Set-AutomationValue $Main 'SupplierInvoiceNumberInput' 'SMOKE-UTIL-001';Set-AutomationValue $Main 'SupplierInvoiceAmountInput' '30';Set-AutomationValue $Main 'SupplierInvoiceInvoiceDateInput' '2026-01-15';Set-AutomationValue $Main 'SupplierInvoiceDueDateInput' '2026-01-31';Invoke-AutomationIdButton $Main 'SaveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice totals failed.' -Condition{try{$utilities=Get-SupplierInvoiceRowState $Main 'Smoke Utilities Vendor' 'SMOKE-UTIL-001' 30 'PLN' '2026-01-15' '2026-01-31';$equipment=Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 120 'PLN' '2026-01-10' '2026-02-10';$state=Get-SupplierInvoicesReadinessState $Main $project;$utilities.Matches-and$equipment.Matches-and$state.LogicalRows.Count-eq2-and($state.LogicalRowNames-join$orderedSeparator)-ceq$initialOrderedRows-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'150'}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: totals PASS'
+    Invoke-SupplierInvoicesPhase $Main 'create invoice 1' $project {Invoke-AutomationIdButton $Main 'AddSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice editor readiness failed.' -Condition{Test-SupplierInvoiceEditorReady $Main};Set-AutomationValue $Main 'SupplierInvoiceSupplierInput' 'Smoke Equipment Vendor';Set-AutomationValue $Main 'SupplierInvoiceNumberInput' 'SMOKE-INV-001';Set-AutomationValue $Main 'SupplierInvoiceAmountInput' '120';Set-AutomationCalendarDate $Main 'SupplierInvoiceInvoiceDateInput' ([DateTime]'2026-01-10');Set-AutomationCalendarDate $Main 'SupplierInvoiceDueDateInput' ([DateTime]'2026-02-10');Set-AutomationValue $Main 'SupplierInvoiceNoteInput' 'smoke invoice';Invoke-AutomationIdButton $Main 'SaveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice create failed.' -Condition{try{(Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 120 'PLN' '2026-01-10' '2026-02-10').Matches-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'120'-and(Test-SupplierInvoiceEditorClosed $Main)}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: create PASS'
+    Invoke-SupplierInvoicesPhase $Main 'create invoice 2' $project {Invoke-AutomationIdButton $Main 'AddSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Second Supplier Invoice editor readiness failed.' -Condition{Test-SupplierInvoiceEditorReady $Main};Set-AutomationValue $Main 'SupplierInvoiceSupplierInput' 'Smoke Utilities Vendor';Set-AutomationValue $Main 'SupplierInvoiceNumberInput' 'SMOKE-UTIL-001';Set-AutomationValue $Main 'SupplierInvoiceAmountInput' '30';Set-AutomationCalendarDate $Main 'SupplierInvoiceInvoiceDateInput' ([DateTime]'2026-01-15');Set-AutomationCalendarDate $Main 'SupplierInvoiceDueDateInput' ([DateTime]'2026-01-31');Invoke-AutomationIdButton $Main 'SaveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice totals failed.' -Condition{try{$utilities=Get-SupplierInvoiceRowState $Main 'Smoke Utilities Vendor' 'SMOKE-UTIL-001' 30 'PLN' '2026-01-15' '2026-01-31';$equipment=Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 120 'PLN' '2026-01-10' '2026-02-10';$state=Get-SupplierInvoicesReadinessState $Main $project;$utilities.Matches-and$equipment.Matches-and$state.LogicalRows.Count-eq2-and($state.LogicalRowNames-join$orderedSeparator)-ceq$initialOrderedRows-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'150'}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: totals PASS'
     Invoke-SupplierInvoicesPhase $Main 'edit invoice' $project {$row=Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 120 'PLN' '2026-01-10' '2026-02-10';Select-ContainingListItem $row.ListItem;Invoke-AutomationIdButton $Main 'EditSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Edit Supplier Invoice editor readiness failed.' -Condition{Test-SupplierInvoiceEditorReady $Main};Set-AutomationValue $Main 'SupplierInvoiceAmountInput' '135';Invoke-AutomationIdButton $Main 'SaveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice update failed.' -Condition{try{(Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 135 'PLN' '2026-01-10' '2026-02-10').Matches-and(($state=Get-SupplierInvoicesReadinessState $Main $project).LogicalRows.Count-eq2)-and($state.LogicalRowNames-join$orderedSeparator)-ceq$updatedOrderedRows-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'165'}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: update PASS'
     Invoke-SupplierInvoicesPhase $Main 're-entry' $project {Invoke-AutomationIdButton $Main 'CompaniesSectionButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoices navigation did not restabilize.' -Condition{try{$button=Get-AutomationIdElement $Main 'SupplierInvoicesSectionButton';$null-ne$button-and$button.Current.IsEnabled}catch{$false}};Invoke-AutomationIdButton $Main 'SupplierInvoicesSectionButton';Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoices re-entry selector not ready.' -Condition{try{$selector=Get-AutomationIdElement $Main 'SupplierInvoicesProjectSelector';$null-ne$selector-and$selector.Current.IsEnabled}catch{$false}};Select-ComboBoxExactSemanticItem $Main 'SupplierInvoicesProjectSelector' $project;Wait-BusinessOSCondition -TimeoutSeconds 20 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoices re-entry failed.' -Condition{try{(Get-SupplierInvoiceRowState $Main 'Smoke Utilities Vendor' 'SMOKE-UTIL-001' 30 'PLN' '2026-01-15' '2026-01-31').Matches-and(Get-SupplierInvoiceRowState $Main 'Smoke Equipment Vendor' 'SMOKE-INV-001' 135 'PLN' '2026-01-10' '2026-02-10').Matches-and(($state=Get-SupplierInvoicesReadinessState $Main $project).Semantic.IsExpected)-and$state.Currency.Current.Name-eq'PLN'-and$state.LogicalRows.Count-eq2-and($state.LogicalRowNames-join$orderedSeparator)-ceq$updatedOrderedRows-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'165'}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: re-entry PASS'
     Invoke-SupplierInvoicesPhase $Main 'archive dialog' $project {$row=Get-SupplierInvoiceRowState $Main 'Smoke Utilities Vendor' 'SMOKE-UTIL-001' 30 'PLN' '2026-01-15' '2026-01-31';Select-ContainingListItem $row.ListItem;Invoke-AutomationIdButton $Main 'ArchiveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice archive dialog not ready.' -Condition{try{$dialog=Get-AutomationIdElement $Main 'ArchiveSupplierInvoiceDialog';$cancel=Get-AutomationIdElement $dialog 'CancelArchiveSupplierInvoiceButton';$confirm=Get-AutomationIdElement $dialog 'ConfirmArchiveSupplierInvoiceButton';$null-ne$dialog-and$null-ne$cancel-and$cancel.Current.IsEnabled-and$null-ne$confirm-and$confirm.Current.IsEnabled-and-not(Get-AutomationIdElement $Main 'CompaniesSectionButton').Current.IsEnabled-and-not(Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled}catch{$false}};Invoke-AutomationIdButton (Get-AutomationIdElement $Main 'ArchiveSupplierInvoiceDialog') 'CancelArchiveSupplierInvoiceButton';Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Supplier Invoice archive cancel failed.' -Condition{try{(Get-SupplierInvoiceRowState $Main 'Smoke Utilities Vendor' 'SMOKE-UTIL-001' 30 'PLN' '2026-01-15' '2026-01-31').Matches-and(($state=Get-SupplierInvoicesReadinessState $Main $project).LogicalRows.Count-eq2)-and($state.LogicalRowNames-join$orderedSeparator)-ceq$updatedOrderedRows-and$null-eq(Get-AutomationIdElement $Main 'ArchiveSupplierInvoiceDialog')-and(Get-AutomationIdElement $Main 'SupplierInvoicesTotal').Current.Name-match'165'-and(Get-AutomationIdElement $Main 'CompaniesSectionButton').Current.IsEnabled-and(Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton').Current.IsEnabled}catch{$false}}};Add-Content $diagnostics 'SupplierInvoicesCrud: archive cancel PASS'

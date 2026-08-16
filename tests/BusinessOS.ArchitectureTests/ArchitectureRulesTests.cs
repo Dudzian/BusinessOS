@@ -10,6 +10,25 @@ namespace BusinessOS.ArchitectureTests;
 public sealed class ArchitectureRulesTests
 {
     [Fact]
+    public void Supplier_invoice_vertical_slice_preserves_module_workspace_and_ui_boundaries()
+    {
+        var root = FindRepositoryRoot();
+        var application = typeof(BusinessOS.Modules.Budgeting.Application.ISupplierInvoicesCrudService).Assembly;
+        Assert.Same(application, typeof(BusinessOS.Modules.Budgeting.Application.ISupplierInvoicesStore).Assembly);
+        application.GetReferencedAssemblies().Select(x => x.Name).Should().NotContain(x => x!.Contains("Infrastructure") || x.Contains("Desktop"));
+        typeof(BusinessOS.Modules.Budgeting.Domain.SupplierInvoice).Assembly.GetReferencedAssemblies().Select(x => x.Name).Should().NotContain(x => x!.Contains("Application") || x.Contains("Infrastructure") || x.Contains("Desktop"));
+        File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Budgeting.Infrastructure");
+        File.ReadAllText(Path.Combine(root, "tests/BusinessOS.UnitTests/BusinessOS.UnitTests.csproj")).Should().Contain("SupplierInvoicesViewModel.cs");
+        var workspace = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/MainWorkspaceViewModel.cs")); workspace.Should().Contain("SupplierInvoicesViewModel supplierInvoices").And.NotContain("SupplierInvoicesViewModel?").And.NotContain("EmptySupplierInvoices").And.NotContain("dummy fallback");
+        var xaml = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml"));
+        foreach (var id in new[] { "SupplierInvoicesSectionButton", "SupplierInvoicesSectionPanel", "SupplierInvoicesProjectSelector", "SupplierInvoicesProjectCurrency", "RefreshSupplierInvoicesButton", "AddSupplierInvoiceButton", "EditSupplierInvoiceButton", "ArchiveSupplierInvoiceButton", "SupplierInvoicesEmptyState", "SupplierInvoicesList", "SupplierInvoicesTotal", "SupplierInvoiceEditorPanel", "SupplierInvoiceSupplierInput", "SupplierInvoiceNumberInput", "SupplierInvoiceAmountInput", "SupplierInvoiceInvoiceDateInput", "SupplierInvoiceDueDateInput", "SupplierInvoiceNoteInput", "SaveSupplierInvoiceButton", "CancelSupplierInvoiceButton", "SupplierInvoicesOperationMessage" }) xaml.Should().Contain($"AutomationProperties.AutomationId=\"{id}\"");
+        xaml.Should().Contain("AutomationProperties.Name=\"{Binding SemanticName}\"");
+        var code = File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/MainWindow.xaml.cs")); foreach (var id in new[] { "ArchiveSupplierInvoiceDialog", "CancelArchiveSupplierInvoiceButton", "ConfirmArchiveSupplierInvoiceButton" }) code.Should().Contain(id);
+        foreach (var spec in new[] { ("SupplierInvoicesProjectSelector_SelectionChanged", "SupplierInvoicesList_SelectionChanged", "OfType<BudgetProjectInfo>()", "SelectProjectAsync"), ("SupplierInvoicesList_SelectionChanged", "SupplierInvoicesRefresh_Click", "OfType<SupplierInvoiceItem>()", "SelectInvoiceAsync") }) { var match = System.Text.RegularExpressions.Regex.Match(code, $"(?s)private async void {spec.Item1}\\b.*?(?=\\s*private .*?{spec.Item2}\\b)"); match.Success.Should().BeTrue(); match.Value.Should().Contain("e.AddedItems").And.Contain(spec.Item3).And.Contain("ToArray()").And.Contain("Length == 1").And.Contain("Single()").And.Contain(spec.Item4).And.NotContain("sender.SelectedItem").And.NotContain("(sender as ComboBox)?.SelectedItem").And.NotContain("(sender as ListView)?.SelectedItem"); }
+        var publicSlice = File.ReadAllText(Path.Combine(root, "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Domain/SupplierInvoice.cs")) + File.ReadAllText(Path.Combine(root, "src/Modules/Budgeting/BusinessOS.Modules.Budgeting.Application/SupplierInvoicesServices.cs")) + File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/ViewModels/SupplierInvoicesViewModel.cs")); foreach (var forbidden in new[] { "Paid", "Payment", "PaymentStatus", "Bank", "Reconcile", "OCR", "Attachment", "VendorSelector", "PostToActual", "ConvertToActual", "Vat", "Tax" }) publicSlice.Should().NotContain(forbidden);
+    }
+
+    [Fact]
     public void Cost_cash_flow_contracts_remain_in_application_and_ui_is_read_only()
     {
         var root = FindRepositoryRoot();
@@ -112,7 +131,7 @@ public sealed class ArchitectureRulesTests
             var element = XDocument.Parse(xaml).Descendants().Single(x => x.Attributes().Any(a => a.Name.LocalName == "AutomationProperties.AutomationId" && a.Value == id));
             element.Attribute("Text")!.Value.Should().Contain("Mode=TwoWay").And.Contain("UpdateSourceTrigger=PropertyChanged");
         }
-        xaml.Should().NotContain("BudgetLineCurrencyInput").And.NotContain("Invoice").And.NotContain("POS").And.NotContain("ERP");
+        xaml.Should().NotContain("BudgetLineCurrencyInput").And.NotContain("POS").And.NotContain("ERP");
         File.ReadAllText(Path.Combine(root, "src/BusinessOS.Desktop/BusinessOS.Desktop.csproj")).Should().NotContain("Infrastructure");
     }
     [Fact]

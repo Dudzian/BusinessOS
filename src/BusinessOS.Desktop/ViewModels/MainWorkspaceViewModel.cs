@@ -2,14 +2,14 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 namespace BusinessOS.Desktop.ViewModels;
 
-public enum WorkspaceSection { Companies, BusinessProjects, Budgeting, ActualCosts, ForecastCosts, BudgetVariance, BudgetForecast, CostCashFlow }
+public enum WorkspaceSection { Companies, BusinessProjects, Budgeting, ActualCosts, ForecastCosts, BudgetVariance, BudgetForecast, CostCashFlow, SupplierInvoices }
 public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
 {
     private WorkspaceSection selectedSection;
-    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting, ActualCostsViewModel actualCosts, ForecastCostsViewModel forecastCosts, BudgetVarianceViewModel budgetVariance, BudgetForecastViewModel budgetForecast, CostCashFlowViewModel costCashFlow)
+    public MainWorkspaceViewModel(CompaniesViewModel companies, BusinessProjectsViewModel projects, BudgetingViewModel budgeting, ActualCostsViewModel actualCosts, ForecastCostsViewModel forecastCosts, BudgetVarianceViewModel budgetVariance, BudgetForecastViewModel budgetForecast, CostCashFlowViewModel costCashFlow, SupplierInvoicesViewModel supplierInvoices)
     {
-        Companies = companies; Projects = projects; Budgeting = budgeting; ActualCosts = actualCosts; BudgetVariance = budgetVariance; ForecastCosts = forecastCosts; BudgetForecast = budgetForecast; CostCashFlow = costCashFlow;
-        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged; ActualCosts.PropertyChanged += ChildChanged; BudgetVariance.PropertyChanged += ChildChanged; ForecastCosts.PropertyChanged += ChildChanged; BudgetForecast.PropertyChanged += ChildChanged; CostCashFlow.PropertyChanged += ChildChanged;
+        Companies = companies; Projects = projects; Budgeting = budgeting; ActualCosts = actualCosts; BudgetVariance = budgetVariance; ForecastCosts = forecastCosts; BudgetForecast = budgetForecast; CostCashFlow = costCashFlow; SupplierInvoices = supplierInvoices;
+        Companies.PropertyChanged += ChildChanged; Projects.PropertyChanged += ChildChanged; Budgeting.PropertyChanged += ChildChanged; ActualCosts.PropertyChanged += ChildChanged; BudgetVariance.PropertyChanged += ChildChanged; ForecastCosts.PropertyChanged += ChildChanged; BudgetForecast.PropertyChanged += ChildChanged; CostCashFlow.PropertyChanged += ChildChanged; SupplierInvoices.PropertyChanged += ChildChanged;
     }
     public CompaniesViewModel Companies { get; }
     public BusinessProjectsViewModel Projects { get; }
@@ -19,8 +19,9 @@ public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
     public ForecastCostsViewModel ForecastCosts { get; }
     public BudgetForecastViewModel BudgetForecast { get; }
     public CostCashFlowViewModel CostCashFlow { get; }
+    public SupplierInvoicesViewModel SupplierInvoices { get; }
     public WorkspaceSection SelectedSection { get => selectedSection; private set { if (selectedSection == value) return; selectedSection = value; OnPropertyChanged(); } }
-    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate && ActualCosts.CanNavigate && BudgetVariance.CanNavigate && ForecastCosts.CanNavigate && BudgetForecast.CanNavigate && CostCashFlow.CanNavigate;
+    public bool CanNavigate => Companies.CanOpenRecovery && Projects.CanNavigate && Budgeting.CanNavigate && ActualCosts.CanNavigate && BudgetVariance.CanNavigate && ForecastCosts.CanNavigate && BudgetForecast.CanNavigate && CostCashFlow.CanNavigate && SupplierInvoices.CanNavigate;
     public bool CanOpenRecovery => CanNavigate;
     public async Task NavigateAsync(WorkspaceSection target, CancellationToken cancellationToken = default)
     {
@@ -60,6 +61,11 @@ public sealed class MainWorkspaceViewModel : INotifyPropertyChanged
         {
             await CostCashFlow.ReloadProjectsAsync(cancellationToken);
             if (!CostCashFlow.LastProjectsReloadSucceeded) return;
+        }
+        if (target == WorkspaceSection.SupplierInvoices)
+        {
+            await SupplierInvoices.ReloadProjectsAsync(cancellationToken);
+            if (!SupplierInvoices.LastProjectsReloadSucceeded) return;
         }
         if (CanNavigate) SelectedSection = target;
     }

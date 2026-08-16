@@ -1,6 +1,6 @@
 # BusinessOS
 
-Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is **COMPLETE**. Block 3B3 Plan vs Actual is **COMPLETE**. Block 3B4 Forecast Costs is **COMPLETE**. Block 3B5 EAC / Plan vs Forecast is **COMPLETE**. Block 3B6 Cost Cash Flow is implemented, pending full Windows verification; invoice ingestion remains deferred.
+Block 3A (BusinessProjects) is complete. Block 3B1 (planned/versioned project budgeting) is **COMPLETE**. Block 3B2 Actual Costs is **COMPLETE**. Block 3B3 Plan vs Actual is **COMPLETE**. Block 3B4 Forecast Costs is **COMPLETE**. Block 3B5 EAC / Plan vs Forecast is **COMPLETE**. Block 3B6 Cost Cash Flow is **COMPLETE**. Block 3B7 Supplier Invoices is implemented, pending full Windows verification.
 
 BusinessOS is a local-first Windows desktop application foundation.
 
@@ -133,5 +133,6 @@ Business projects belong to an active company and follow a controlled lifecycle.
 - Block 3B3 Plan vs Actual — COMPLETE
 - Block 3B4 Forecast Costs — COMPLETE
 - Block 3B5 EAC / Plan vs Forecast — COMPLETE
-- Block 3B6 Cost Cash Flow — implemented, pending full Windows verification
-- Deferred: full/net cash flow, revenue/financing cash flow, banking, invoice ingestion, and advanced forecast analytics.
+- Block 3B6 Cost Cash Flow — COMPLETE
+- Block 3B7 Supplier Invoices — implemented, pending full Windows verification
+- Deferred: invoice file/OCR ingestion, invoice attachments, vendors master data, VAT/tax accounting, invoice -> Actual Cost posting, payments, banking/reconciliation, revenue/financing cash flow, full/net cash flow, and advanced forecast analytics.

@@ -6,6 +6,23 @@ Import-Module (Join-Path $RepoRoot 'eng/BusinessOS.Provisioning.psm1') -Force
 $log=Join-Path $RepoRoot '.cache/environment-tests.log'; New-Item -ItemType Directory -Force (Split-Path $log)|Out-Null; ''|Set-Content -LiteralPath $log
 $script:Failures=0
 function Assert($Name,[scriptblock]$Body){try{& $Body; "PASS $Name"|Tee-Object -FilePath $log -Append}catch{$script:Failures++; "FAIL $Name :: $($_.Exception.Message)"|Tee-Object -FilePath $log -Append; Write-Error $_}}
+Assert 'central EF and SQLite package versions are coherent' {
+    [xml]$centralPackages = Get-Content -LiteralPath (Join-Path $RepoRoot 'Directory.Packages.props') -Raw
+    $packageNames = @(
+        'Microsoft.EntityFrameworkCore.Sqlite'
+        'Microsoft.EntityFrameworkCore.Design'
+        'Microsoft.Data.Sqlite'
+    )
+    $versions = foreach ($packageName in $packageNames) {
+        $matches = @($centralPackages.Project.ItemGroup.PackageVersion | Where-Object { $_.Include -eq $packageName })
+        if ($matches.Count -ne 1) { throw "expected exactly one central version for $packageName, found $($matches.Count)" }
+        if ([string]::IsNullOrWhiteSpace($matches[0].Version)) { throw "central version for $packageName is empty" }
+        [string]$matches[0].Version
+    }
+    if (@($versions | Sort-Object -Unique).Count -ne 1) {
+        throw "EF and SQLite central package versions differ: $($versions -join ', ')"
+    }
+}
 Assert 'desktop smoke closes the selected AutomationElement through WindowPattern' {
     $smokePath = Join-Path $RepoRoot 'eng/smoke-test-desktop.ps1'
     $tokens = $null

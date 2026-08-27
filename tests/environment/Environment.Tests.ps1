@@ -163,15 +163,30 @@ Assert 'desktop Ready smoke stabilizes BusinessProjects re-entry after the compa
     $crud = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-CompaniesCrudSmoke' }, $true))[0]
     if ($null -eq $crud) { throw 'desktop smoke is missing Invoke-CompaniesCrudSmoke' }
     $source = $crud.Extent.Text
+    $restoredHelper = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-CompanyArchiveInteractionRestored' }, $true))[0]
+    if ($null -eq $restoredHelper) { throw 'desktop smoke is missing the company archive interaction-restored wait' }
+    $restoredSource = $restoredHelper.Extent.Text
+    foreach ($required in 'ArchiveCompanyDialog','BusinessProjectsSectionButton','CompaniesList','OpenRecoveryFromMainButton','.Current.IsEnabled','RequiredConsecutiveSuccesses 3') {
+        if (-not $restoredSource.Contains($required, [StringComparison]::Ordinal)) { throw "company archive interaction-restored wait omits: $required" }
+    }
+    if ($restoredSource -notmatch '\$null\s+-eq\s+\$archiveDialog') { throw 'company archive interaction-restored wait does not require the archive dialog to be closed' }
+    if ($restoredSource -match 'Start-Sleep|IsOffscreen|BoundingRectangle') { throw 'company archive interaction-restored wait depends on sleep or viewport geometry' }
+    $confirm = $source.IndexOf("'ConfirmArchiveCompanyButton'", [StringComparison]::Ordinal)
+    $safeMessage = $source.IndexOf('Najpierw zarchiwizuj wszystkie projekty firmy.', $confirm, [StringComparison]::Ordinal)
+    $restoredWait = $source.IndexOf('Wait-CompanyArchiveInteractionRestored $Main', $safeMessage, [StringComparison]::Ordinal)
     $navigation = "Invoke-AutomationIdButton `$Main 'BusinessProjectsSectionButton'"
     $navigationOffsets = @(); $offset = 0
     while (($offset = $source.IndexOf($navigation, $offset, [StringComparison]::Ordinal)) -ge 0) { $navigationOffsets += $offset; $offset += $navigation.Length }
     if ($navigationOffsets.Count -ne 2) { throw "expected exactly two BusinessProjects navigation calls, found $($navigationOffsets.Count)" }
+    if ($confirm -lt 0 -or $safeMessage -lt $confirm -or $restoredWait -lt $safeMessage -or $navigationOffsets[1] -lt $restoredWait) { throw 'company archive guard does not sequence confirm, safe message, semantic interaction restoration, and BusinessProjects navigation' }
     $reentry = $source.Substring($navigationOffsets[1])
     $archive = $reentry.IndexOf("Invoke-AutomationIdButton `$Main 'ArchiveBusinessProjectButton'", [StringComparison]::Ordinal)
     if ($archive -lt 0) { throw 'project archive flow is missing after BusinessProjects re-entry' }
     $beforeArchive = $reentry.Substring(0, $archive)
     if ($beforeArchive -notmatch "Wait-BusinessProjectStatusReady\s+\`$Main\s+'BusinessOS Gym Smoke Updated'\s+'Analysis'") { throw 're-entry does not stably require the expected Analysis project' }
+    $statusReady = $beforeArchive.IndexOf('Wait-BusinessProjectStatusReady', [StringComparison]::Ordinal)
+    $reentryPass = $beforeArchive.IndexOf('BusinessProjectsCrud: re-entry after company archive guard PASS', [StringComparison]::Ordinal)
+    if ($statusReady -lt 0 -or $reentryPass -lt $statusReady) { throw 'company archive guard re-entry PASS marker precedes stable project readiness' }
     if ($beforeArchive -notmatch 'Select-ContainingListItem\s+\$projectState\.ListItem') { throw 're-entry does not select the safely validated ListItem' }
     if ($beforeArchive -match 'Start-Sleep|IsOffscreen|BoundingRectangle') { throw 're-entry readiness depends on sleep or viewport geometry' }
     if ($beforeArchive -match "\(Get-NamedElements[^\r\n;]*'BusinessOS Gym Smoke Updated'\)\[0\]") { throw 're-entry performs unsafe raw indexing before project selection' }

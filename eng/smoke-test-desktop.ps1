@@ -333,6 +333,22 @@ function Test-CompanyEditorClosed($Main) {
         Where-Object { Test-Visible (Get-AutomationIdElement $Main $_) } |
         Measure-Object | Select-Object -ExpandProperty Count | ForEach-Object { $_ -eq 0 }
 }
+function Wait-CompanyArchiveInteractionRestored($Main) {
+    Wait-BusinessOSCondition -TimeoutSeconds 10 -RequiredConsecutiveSuccesses 3 -TimeoutMessage 'Company archive guard flow did not restore interaction capabilities.' -Condition {
+        try {
+            $archiveDialog = Get-AutomationIdElement $Main 'ArchiveCompanyDialog'
+            $businessProjectsNavigation = Get-AutomationIdElement $Main 'BusinessProjectsSectionButton'
+            $companiesList = Get-AutomationIdElement $Main 'CompaniesList'
+            $recovery = Get-AutomationIdElement $Main 'OpenRecoveryFromMainButton'
+            return $null -eq $archiveDialog -and
+                $null -ne $businessProjectsNavigation -and $businessProjectsNavigation.Current.IsEnabled -and
+                $null -ne $companiesList -and $companiesList.Current.IsEnabled -and
+                $null -ne $recovery -and $recovery.Current.IsEnabled
+        } catch {
+            return $false
+        }
+    }
+}
 function Test-BusinessProjectEditorOpen($Main) {
     $inputsReady = @('BusinessProjectNameInput', 'BusinessProjectTypeInput', 'BusinessProjectLocationInput', 'BusinessProjectCurrencyInput') |
         Where-Object { -not (Test-AutomationValueInputReady (Get-AutomationIdElement $Main $_)) } |
@@ -930,6 +946,7 @@ function Invoke-CompaniesCrudSmoke($Main) {
     Wait-BusinessOSCondition -TimeoutSeconds 10 -TimeoutMessage 'Company archive guard did not return a safe message.' -Condition { (Get-NamedElements $Main 'Najpierw zarchiwizuj wszystkie projekty firmy.').Count -ge 1 }
     if ((Get-NamedElements (Get-AutomationIdElement $Main 'CompaniesList') 'BusinessOS Smoke Updated').Count -ne 1) { throw 'Company disappeared despite project archive guard.' }
     Add-Content $diagnostics 'CompaniesCrud: project archive guard PASS'
+    Wait-CompanyArchiveInteractionRestored $Main
     Invoke-AutomationIdButton $Main 'BusinessProjectsSectionButton'
     $projectState = Wait-BusinessProjectStatusReady $Main 'BusinessOS Gym Smoke Updated' 'Analysis' 'BusinessProjects section did not restore the expected Analysis project after company archive guard.'
     Select-ContainingListItem $projectState.ListItem
